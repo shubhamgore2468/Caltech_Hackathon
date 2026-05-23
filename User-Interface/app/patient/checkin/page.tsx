@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { BackButton } from '@/components/BackButton';
 import { CheckinVideoSession } from '@/components/patient/CheckinVideoSession';
-import { MotionCapture } from '@/components/sensors/MotionCapture';
+import { MotionCapture } from '@/Frontend/components/sensors/MotionCapture';
 import { extractCameraBiomarkers, cameraBiomarkersToRows } from '@/lib/biomarkers/camera';
 import { extractVoiceBiomarkers, voiceBiomarkersToRows } from '@/lib/biomarkers/voice';
 import { extractMotionBiomarkers, motionBiomarkersToRows } from '@/lib/biomarkers/motion';

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Minus, Plus, ShoppingCart, X, CreditCard } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/Frontend/components/ui/button";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import NumberFlow from "@number-flow/react";

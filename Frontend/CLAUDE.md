@@ -6,7 +6,7 @@
 ## What this is
 Caltech Longevity Hackathon, 24h, 4-person team (1 tech lead + 3 builders). Research data-gathering platform for Parkinson's + dementia longitudinal tracking. Two portals: `/patient` (mobile, friendly) + `/doctor` (clinical). Demo arc: AI voice check-in + walk/tremor test → biomarkers → composite risk score → doctor sees longitudinal trends.
 
-User = tech lead. Glue + review + demo prep, not a big code chunk.
+User = tech lead **+ Teammate 2 (Brain person)**. Owns backend, motion biomarkers, voice biomarkers (mocked), risk fusion, Claude conversation page, walk/tremor test pages. Plus glue + review + demo prep.
 
 ## Team split (3 builders)
 

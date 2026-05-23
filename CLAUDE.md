@@ -79,12 +79,12 @@ DEMO_PATIENT_ID=demo-001
 
 | Status | Item | Notes |
 |--------|------|-------|
-| ☐ | Hour 0–2: scaffold | `create-next-app`, deps, shadcn init |
-| ☐ | Supabase project + migration 0001 | seed `demo-001` |
-| ☐ | `components/sensors/MotionCapture.tsx` ported from IMU/index.html | DeviceMotion permission flow for iOS |
-| ☐ | `lib/types.ts` + `lib/supabase/{client,server}.ts` | |
-| ☐ | `.env.local.example` shared with team | |
-| ☐ | Repo pushed, team cloned | |
+| x | Hour 0–2: scaffold | Next 15, TS, Tailwind v4, shadcn (button/card/badge/progress/alert/tabs), deps installed |
+| x | Supabase migration 0001 written | `supabase/migrations/0001_init.sql` — NOT yet applied to a live Supabase project. User must create project + run migration. Demo patient UUID `00000000-0000-0000-0000-000000000001` |
+| x | `components/sensors/{MotionCapture.tsx,useMotionCapture.ts}` ported | Hook + UI w/ live canvas. iOS permission gate included. `onComplete(samples)` callback fires when capture stops |
+| x | `lib/types.ts` + `lib/supabase/{client,server}.ts` | `DEMO_PATIENT_ID` exported from types |
+| x | `.env.local.example` written | User must fill + copy to `.env.local` |
+| ☐ | Repo pushed to remote (no remote configured yet) | Committed locally, push when ready |
 | ☐ | Hour 8: contract check passes (B → A → C1 round trip) | |
 | ☐ | `lib/biomarkers/motion.ts` real FFT | tremor/gait |
 | ☐ | `lib/biomarkers/voice.ts` mocked | |

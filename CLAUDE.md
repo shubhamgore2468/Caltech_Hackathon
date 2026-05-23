@@ -4,9 +4,47 @@
 > Master plan: `/Users/shubhamgore/.claude/plans/help-build-a-plan-cozy-muffin.md`
 
 ## What this is
-Caltech Longevity Hackathon, 24h, 4-person team. Research data-gathering platform for Parkinson's + dementia longitudinal tracking. Two portals: `/patient` (mobile, friendly) + `/doctor` (clinical). Demo arc: AI voice check-in + walk/tremor test → biomarkers → composite risk score → doctor sees longitudinal trends.
+Caltech Longevity Hackathon, 24h, 4-person team (1 tech lead + 3 builders). Research data-gathering platform for Parkinson's + dementia longitudinal tracking. Two portals: `/patient` (mobile, friendly) + `/doctor` (clinical). Demo arc: AI voice check-in + walk/tremor test → biomarkers → composite risk score → doctor sees longitudinal trends.
 
-User = tech lead, Stream A owner.
+User = tech lead. Glue + review + demo prep, not a big code chunk.
+
+## Team split (3 builders)
+
+### teammate 1 — "Screens person" (Frontend + Stream C)
+Builds what stuff **looks like** + fake data layer.
+- `/doctor/page.tsx` patient list w/ alert badges
+- `/doctor/patient/[id]/page.tsx` risk gauge + Recharts trend lines + session history + transcript modal
+- `/doctor/cohort/page.tsx` aggregate distributions (n≥5 guard)
+- `/patient/page.tsx` home (3 buttons: check-in, walk, tremor) + `/patient/family/page.tsx` caregiver read-only view
+- `lib/alerts.ts` 30-day rolling baseline + 2σ deviation
+- `lib/wearable/terra.ts` mock fixture (steps/HRV/sleep) + `app/api/wearable/sync/route.ts`
+- `app/api/export/csv/route.ts` long-format CSV
+- **CRITICAL: `scripts/seed-demo-data.ts`** — 6 weeks fake sessions w/ monotonic degradation curve. Without this, demo charts empty.
+
+### teammate 2 — "Brain person" (Backend + Stream A + Stream B minus camera)
+Builds what stuff **does**.
+- All core API routes: `app/api/{sessions,sessions/[id],biomarkers,risk-score/compute,patients/[id]/timeline,conversation/turn}/route.ts` w/ zod validation
+- `lib/biomarkers/motion.ts` — REAL inline Cooley-Tukey FFT, tremor_score (4–6Hz band power), dominant_freq_hz, rms_acceleration, gait_variance, hand_tremor_hz
+- `lib/biomarkers/voice.ts` — MOCKED seeded values now, `// INTEGRATION POINT: real DSP later` (Python sidecar w/ librosa+parselmouth+UCI Max Little ML)
+- `lib/biomarkers/fusion.ts` + risk-score endpoint w/ documented weights
+- `app/patient/checkin/page.tsx` — Claude conversation streaming via Web Speech STT + browser TTS, text-input fallback day-one. Embeds cognitive probes (3-word recall, animal fluency)
+- `app/patient/test/page.tsx` — walk + tremor tests, drops in `MotionCapture` component (already built)
+- `lib/voice/transcribe.ts` — Web Speech wrapper
+
+### teammate 3 — "Camera person"
+Builds face-watching pipeline.
+- `lib/biomarkers/camera.ts` — facial_tremor (landmark displacement stddev around mouth/jaw), blink_rate (eye aspect ratio threshold), hypomimia proxy (landmark variance), rPPG heart rate (forehead green channel FFT 0.7–4Hz)
+- `components/sensors/CameraCapture.tsx` + `useCameraCapture.ts` — MediaPipe Face Landmarker WASM, front cam stream, mirror MotionCapture API: `<CameraCapture durationSec onComplete={(frames) => ...} />`
+- Plugs into Friend 2's `/patient/checkin/page.tsx` as child component. Friend 3 props locked at hour 4.
+
+### Tech lead
+- Code review, merge gating, resolve schema/contract conflicts
+- Run hour 8 contract check (B → A → C round trip w/ fake biomarker batch)
+- Run hour 14 vertical slice (real check-in lands in real chart)
+- Seed sanity check, demo polish, hour 22 backup video, hour 23 slides + pitch
+
+## Lock rule
+Database tables + API URLs frozen at hour 2. After that NOBODY changes them. Schema drift mid-night = whole team breaks.
 
 ## Stack (locked)
 Next.js 15 App Router · TypeScript · Tailwind · shadcn/ui · Supabase (Postgres + Auth + Storage) · Anthropic Claude API (`claude-sonnet-4-5` conversation, `claude-haiku-4-5` cheap ops) · Recharts · MediaPipe Face Landmarker · Web Speech API.
@@ -84,16 +122,18 @@ DEMO_PATIENT_ID=demo-001
 | x | `components/sensors/{MotionCapture.tsx,useMotionCapture.ts}` ported | Hook + UI w/ live canvas. iOS permission gate included. `onComplete(samples)` callback fires when capture stops |
 | x | `lib/types.ts` + `lib/supabase/{client,server}.ts` | `DEMO_PATIENT_ID` exported from types |
 | x | `.env.local.example` written | User must fill + copy to `.env.local` |
-| ☐ | Repo pushed to remote (no remote configured yet) | Committed locally, push when ready |
-| ☐ | Hour 8: contract check passes (B → A → C1 round trip) | |
-| ☐ | `lib/biomarkers/motion.ts` real FFT | tremor/gait |
-| ☐ | `lib/biomarkers/voice.ts` mocked | |
-| ☐ | `lib/biomarkers/camera.ts` mocked | |
-| ☐ | `lib/biomarkers/fusion.ts` + `/api/risk-score/compute` | |
-| ☐ | All `/api/*` routes live | |
-| ☐ | Stream B: `/patient/*` routes + Claude conversation | Web Speech text fallback day-one |
-| ☐ | Stream C1: `/doctor/*` routes + Recharts + `lib/alerts.ts` | |
-| ☐ | Stream C2: seed script (CRITICAL) + wearable mock + CSV export | |
+| x | Repo pushed to remote (no remote configured yet) | Committed locally, push when ready |
+| ☐ | Hour 8: contract check (Friend 1 + 2 + 3 round trip w/ fake batch) | Tech lead runs |
+| ☐ | Friend 2: `lib/biomarkers/motion.ts` real FFT | tremor + gait |
+| ☐ | Friend 2: `lib/biomarkers/voice.ts` mocked | INTEGRATION POINT for Python sidecar later |
+| ☐ | Friend 3: `lib/biomarkers/camera.ts` + `CameraCapture` component | MediaPipe Face Landmarker |
+| ☐ | Friend 2: `lib/biomarkers/fusion.ts` + `/api/risk-score/compute` | |
+| ☐ | Friend 2: all core `/api/*` routes live (sessions, biomarkers, timeline, conversation/turn) | |
+| ☐ | Friend 2: `/patient/checkin` Claude conversation + `/patient/test` walk/tremor | Web Speech text fallback day-one |
+| ☐ | Friend 1: `/doctor/*` routes + Recharts + `lib/alerts.ts` | |
+| ☐ | Friend 1: `scripts/seed-demo-data.ts` (CRITICAL) + wearable mock + CSV export | Run before every demo rehearsal |
+| ☐ | Friend 1: `/patient/page.tsx` home + `/patient/family/page.tsx` | UI shell only — sensor wiring is Friend 2 |
+| ☐ | Friend 3 props lock at hour 4 (CameraCapture API) | Friend 2 can stub child early |
 | ☐ | Hour 14: full vertical slice green | |
 | ☐ | Hour 18: feature freeze | |
 | ☐ | Hour 20: 3× end-to-end demo run | |
@@ -109,6 +149,7 @@ _(none yet)_
 - 2026-05-23: Locked synthetic 6wk seed + live session appended.
 - 2026-05-23: Post-hackathon voice upgrade path confirmed — Python FastAPI sidecar w/ librosa+parselmouth+sklearn against UCI Max Little dataset. Swap-in only touches `lib/biomarkers/voice.ts` body + new `VOICE_SVC_URL` env. Schema + API contracts + fusion logic stay. ML output written as additional `biomarkers` row(s), e.g. `parkinsons_voice_ml_score`.
 - 2026-05-23: Voice AI chat agent path — start w/ Web Speech STT + Claude text + browser TTS; later swap to Deepgram/AssemblyAI STT + ElevenLabs/Cartesia TTS behind same `/api/conversation/turn`.
+- 2026-05-23: Team re-split from 4 streams → 3 friends (Screens / Brain / Camera) + tech lead. Friend 2 absorbs old Stream A backend + Stream B patient flows minus camera. Friend 1 absorbs old Stream C entirely (charts + wearable + CSV + seed). Friend 3 isolated to camera pipeline only.
 
 ## Known gotchas
 - **iOS Safari DeviceMotion**: requires user-gesture permission (`DeviceMotionEvent.requestPermission()`). Must be triggered from a click handler, not on mount. See IMU/index.html for working pattern.
@@ -122,3 +163,28 @@ _(none yet)_
 3. Check Progress log → first unchecked item is next task.
 4. `git log -20` if repo initialized, to see what already shipped.
 5. Update this file's Progress log + Decisions log as work completes.
+
+---
+
+## For builders — Claude Code onboarding
+
+Each friend: clone repo, `cd project`, run `claude` (Claude Code CLI). CLAUDE.md auto-loads. Paste your prompt below verbatim. Claude will read the team split section, locate your owned files, and start building.
+
+### Teammate 1 (Screens person) — paste this:
+> I am **Teammate 1, the Screens person**. Read CLAUDE.md. My job: doctor dashboard pages, patient home + family pages, alerts, wearable mock, CSV export, and the CRITICAL seed-demo-data script. Show me my checklist from the Progress log, then start with the seed-demo-data script (highest demo risk if late). Use only the files listed under my role. Do NOT touch backend API routes, sensor components, or biomarker logic — those are owned by Teammates 2 + 3. Confirm understanding, then begin.
+
+### Teammate 2 (Brain person) — paste this:
+> I am **Teammate 2, the Brain person**. Read CLAUDE.md. My job: all backend API routes, motion biomarkers (real FFT), voice biomarkers (mocked), risk fusion, Claude conversation page, walk + tremor test pages. The MotionCapture component already exists at `components/sensors/MotionCapture.tsx` — consume it via its `onComplete(samples)` callback, do not modify it. Show me my checklist from the Progress log, then start with the core API routes (sessions, biomarkers) since Teammate 1 + 3 are blocked until those exist. Do NOT touch doctor pages, alerts, seed script, or camera code. Confirm understanding, then begin.
+
+### Teammate 3 (Camera person) — paste this:
+> I am **Teammate 3, the Camera person**. Read CLAUDE.md. My job: `lib/biomarkers/camera.ts` + `components/sensors/CameraCapture.tsx` + `useCameraCapture.ts`. Mirror the API shape of the existing `MotionCapture` component — `<CameraCapture durationSec onComplete={(frames) => ...} />`. Use MediaPipe Face Landmarker (already installed: `@mediapipe/tasks-vision`). Extract: facial_tremor, blink_rate, hypomimia proxy, rPPG heart rate. Props must lock by hour 4 so Teammate 2 can stub me into the check-in page. Do NOT touch backend, doctor pages, or motion code. Confirm understanding, then begin.
+
+### Tech lead (you) — paste this:
+> I am the **tech lead**. Read CLAUDE.md. My job: code review, merge gating, hour 8 contract check, hour 14 vertical slice, hour 20 demo rehearsals, hour 22 backup video, hour 23 slides. Do NOT write feature code unless a teammate is blocked. Show me the Progress log, highlight rows that are at risk based on current state.
+
+## Working agreements (for all builders)
+- Update the Progress log row when you finish a task. Use `✅` and add a short note (paths, gotchas).
+- If you hit a blocker, add it under "Open questions / blockers" w/ your name.
+- If you change something that affects others (new env var, new shared util), add a Decisions log entry w/ date + reason.
+- Do NOT modify the **Shared contracts** section after hour 2. If you think you need to, ping the tech lead first.
+- Commit small + often. Conventional commits (`feat:`, `fix:`, `chore:`) so tech lead can review fast.

@@ -11,8 +11,6 @@ import {
 import { generateMockSamples } from '@/lib/biomarkers/motion';
 import { extractVoiceBiomarkers } from '@/lib/biomarkers/voice';
 import { DEMO_PATIENT_ID, type Sample } from '@/lib/types';
-
-const PATIENT_ID = process.env.NEXT_PUBLIC_DEMO_PATIENT_ID ?? DEMO_PATIENT_ID;
 const VOICE_TURNS = 4;
 
 type Step = 'intro' | 'imu1' | 'imu2' | 'voice' | 'video' | 'done';
@@ -129,6 +127,22 @@ export default function CheckinPage() {
   const voiceBiomarkersRef = useRef<VoiceBiomarkerPayload[]>([]);
   const turnsSnapshotRef = useRef<Turn[]>([]);
 
+  // ── patient ID — resolved from Clerk identity on mount ─────────────────
+  const patientIdRef = useRef<string>(
+    process.env.NEXT_PUBLIC_DEMO_PATIENT_ID ?? DEMO_PATIENT_ID,
+  );
+
+  useEffect(() => {
+    fetch('/api/me/patient')
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((data: { patient_id?: string }) => {
+        if (data.patient_id) {
+          patientIdRef.current = data.patient_id;
+        }
+      })
+      .catch((err) => console.warn('[checkin] patient id fallback to demo', err));
+  }, []);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recRef = useRef<RecorderHandle | null>(null);
   const userTurnCountRef = useRef(0);
@@ -191,7 +205,7 @@ export default function CheckinPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          patient_id: PATIENT_ID,
+          patient_id: patientIdRef.current,
           session_type: 'checkin',
           duration_seconds: 0,
           notes: 'guided_checkin',
@@ -212,7 +226,7 @@ export default function CheckinPage() {
     await fetch('/api/biomarkers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, patient_id: PATIENT_ID, biomarkers }),
+      body: JSON.stringify({ session_id: sessionId, patient_id: patientIdRef.current, biomarkers }),
     });
   }
 
@@ -305,7 +319,7 @@ export default function CheckinPage() {
       const form = new FormData();
       form.append('audio', wav, 'turn.wav');
       form.append('session_id', voiceSessionIdRef.current);
-      form.append('patient_id', PATIENT_ID);
+      form.append('patient_id', patientIdRef.current);
 
       const res = await fetch('/api/voice/turn', { method: 'POST', body: form });
       if (!res.ok) {
@@ -389,7 +403,7 @@ export default function CheckinPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               session_id: sessionId,
-              patient_id: PATIENT_ID,
+              patient_id: patientIdRef.current,
               transcript,
               cognitive_flags: aggregateFlags,
             }),
@@ -425,7 +439,7 @@ export default function CheckinPage() {
         await fetch('/api/risk-score/compute', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, patient_id: PATIENT_ID }),
+          body: JSON.stringify({ session_id: sessionId, patient_id: patientIdRef.current }),
         });
         await fetch(`/api/sessions/${sessionId}`, {
           method: 'PATCH',

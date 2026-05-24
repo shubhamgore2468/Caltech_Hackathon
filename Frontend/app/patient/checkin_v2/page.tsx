@@ -8,8 +8,6 @@ import { MotionCapture } from '@/components/sensors/MotionCapture';
 import { useMotionCapture } from '@/components/sensors/useMotionCapture';
 import { generateMockSamples } from '@/lib/biomarkers/motion';
 import { DEMO_PATIENT_ID, type Sample } from '@/lib/types';
-
-const PATIENT_ID = process.env.NEXT_PUBLIC_DEMO_PATIENT_ID ?? DEMO_PATIENT_ID;
 const VOICE_TURNS = 4;
 const VIDEO_CAPTURE_SEC = 20;
 const MOTION_SLICE_SEC = 15;
@@ -98,6 +96,23 @@ export default function CheckinV2Page() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string>('');
+
+  // ── patient ID — resolved from Clerk identity on mount ─────────────────
+  // Falls back to the demo UUID so the page still works in mock / demo mode.
+  const patientIdRef = useRef<string>(
+    process.env.NEXT_PUBLIC_DEMO_PATIENT_ID ?? DEMO_PATIENT_ID,
+  );
+
+  useEffect(() => {
+    fetch('/api/me/patient')
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((data: { patient_id?: string }) => {
+        if (data.patient_id) {
+          patientIdRef.current = data.patient_id;
+        }
+      })
+      .catch((err) => console.warn('[checkin_v2] patient id fallback to demo', err));
+  }, []);
 
   // ── refs ───────────────────────────────────────────────────────────────
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -207,7 +222,7 @@ export default function CheckinV2Page() {
     await fetch('/api/biomarkers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, patient_id: PATIENT_ID, biomarkers }),
+      body: JSON.stringify({ session_id: sessionId, patient_id: patientIdRef.current, biomarkers }),
     });
   }
 
@@ -241,7 +256,7 @@ export default function CheckinV2Page() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          patient_id: PATIENT_ID,
+          patient_id: patientIdRef.current,
           session_type: 'checkin',
           duration_seconds: 0,
           notes: 'guided_checkin_v2',
@@ -533,7 +548,7 @@ export default function CheckinV2Page() {
       const form = new FormData();
       form.append('audio', wav, 'turn.wav');
       form.append('session_id', voiceSessionIdRef.current);
-      form.append('patient_id', PATIENT_ID);
+      form.append('patient_id', patientIdRef.current);
 
       const res = await fetch('/api/voice/turn', { method: 'POST', body: form });
       if (!res.ok) {
@@ -649,7 +664,7 @@ export default function CheckinV2Page() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             session_id: sessionId,
-            patient_id: PATIENT_ID,
+            patient_id: patientIdRef.current,
             transcript,
             cognitive_flags: aggregateFlags,
           }),
@@ -660,7 +675,7 @@ export default function CheckinV2Page() {
         await fetch('/api/risk-score/compute', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, patient_id: PATIENT_ID }),
+          body: JSON.stringify({ session_id: sessionId, patient_id: patientIdRef.current }),
         });
         await fetch(`/api/sessions/${sessionId}`, {
           method: 'PATCH',

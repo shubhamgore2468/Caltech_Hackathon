@@ -4,8 +4,11 @@ import { getServerSupabase } from '@/lib/supabase/server';
 import { computeRiskScore } from '@/lib/biomarkers/fusion';
 import type { Biomarker, CognitiveFlags } from '@/lib/types';
 
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 const BodySchema = z.object({
-  session_id: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
+  session_id: z.string().regex(UUID_RE),
+  patient_id: z.string().regex(UUID_RE).optional(),
 });
 
 export async function POST(req: Request) {
@@ -14,12 +17,13 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: z.treeifyError(parsed.error) }, { status: 400 });
   }
-  const { session_id } = parsed.data;
+  const { session_id, patient_id: bodyPatientId } = parsed.data;
   const supa = getServerSupabase();
 
-  const [bioRes, convRes] = await Promise.all([
+  const [bioRes, convRes, sessionRes] = await Promise.all([
     supa.from('biomarkers').select('category, metric_name, value, unit, raw_blob').eq('session_id', session_id),
     supa.from('conversations').select('cognitive_flags').eq('session_id', session_id).maybeSingle(),
+    supa.from('sessions').select('patient_id').eq('id', session_id).maybeSingle(),
   ]);
 
   if (bioRes.error) {
@@ -40,10 +44,13 @@ export async function POST(req: Request) {
       `pd=${score.parkinsons_score.toFixed(4)} dem=${score.dementia_score.toFixed(4)}`,
   );
 
+  const resolvedPatientId = bodyPatientId ?? sessionRes.data?.patient_id ?? null;
+
   const { data, error } = await supa
     .from('risk_scores')
     .insert({
       session_id,
+      patient_id: resolvedPatientId,
       parkinsons_score: score.parkinsons_score,
       dementia_score: score.dementia_score,
       contributing_factors: score.contributing_factors,

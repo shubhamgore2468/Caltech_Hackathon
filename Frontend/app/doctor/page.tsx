@@ -3,145 +3,102 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BackButton } from '@/components/BackButton';
-import { formatMetricValue } from '@/lib/clinical/metric-definitions';
-import type { DoctorDashboardSummary } from '@/lib/clinical/dashboard';
 
-const DEMO_PATIENT_ID = process.env.NEXT_PUBLIC_DEMO_PATIENT_ID ?? 'demo-001';
-const LIVE_PATIENT_ID = '00000000-0000-0000-0000-000000000001';
-
-interface LivePatientSummary {
-  patient: { id: string; name?: string | null; diagnosis?: string | null };
-  session: { recorded_at?: string | null; started_at?: string | null } | null;
-  biomarkers: { metric_name: string; value: number }[];
+interface PatientRow {
+  id: string;
+  name: string;
+  diagnosis: string;
+  last_session: { at: string } | null;
   risk_score: { parkinsons_score: number; dementia_score: number } | null;
-  mock: boolean;
 }
 
 export default function DoctorHome() {
-  const [dashboard, setDashboard] = useState<DoctorDashboardSummary | null>(null);
-  const [live, setLive] = useState<LivePatientSummary | null>(null);
+  const [patients, setPatients] = useState<PatientRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/patients/${DEMO_PATIENT_ID}/dashboard`)
-      .then((r) => r.json())
-      .then(setDashboard);
-    fetch(`/api/patients/${LIVE_PATIENT_ID}/latest`)
-      .then((r) => r.json())
-      .then(setLive)
-      .catch(() => setLive(null));
+    fetch('/api/patients')
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed to load');
+        return r.json();
+      })
+      .then((data) => {
+        setPatients(Array.isArray(data) ? data : []);
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('Could not load patient data.');
+        setLoading(false);
+      });
   }, []);
 
-  const kinematic = dashboard?.pillars.find((p) => p.id === 'kinematic_tremor');
-  const vocal = dashboard?.pillars.find((p) => p.id === 'vocal_tremor');
-  const hr = dashboard?.pillars.find((p) => p.id === 'resting_hr');
-
   return (
-    <main className="min-h-screen bg-white p-8">
+    <main className="min-h-screen bg-[#FDFCFB] p-8">
       <BackButton href="/" label="Home" />
-      <h1 className="mt-4 text-2xl font-bold text-slate-900">Doctor Dashboard</h1>
-      <p className="mt-1 text-sm text-slate-600">
-        Weekly check-in monitoring · kinematic, vocal, autonomic &amp; clinical context
-      </p>
-
-      <div className="mt-8 space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Patients</h2>
-
-        {/* ── Live patient card (real Supabase data) ─────────────────── */}
-        <Link
-          href={`/doctor/patient/${LIVE_PATIENT_ID}`}
-          className="block rounded-lg border border-emerald-200 bg-emerald-50/40 p-4 hover:border-emerald-500 transition-colors"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-medium text-slate-900">
-                  {live?.patient?.name ?? 'Demo Patient'}
-                </p>
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                  Live
-                </span>
-              </div>
-              <p className="text-sm text-slate-500">{live?.patient?.diagnosis ?? '—'}</p>
-              <p className="mt-0.5 text-[11px] font-mono text-slate-400 truncate">{LIVE_PATIENT_ID}</p>
-              {live?.session?.recorded_at || live?.session?.started_at ? (
-                <p className="mt-1 text-xs text-slate-400">
-                  Last check-in:{' '}
-                  {new Date(live.session.recorded_at ?? live.session.started_at!).toLocaleString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })}
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-slate-400">No sessions yet</p>
-              )}
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <RiskPill label="PD" score={live?.risk_score?.parkinsons_score ?? null} />
-              <RiskPill label="DEM" score={live?.risk_score?.dementia_score ?? null} />
-            </div>
-          </div>
-          {live?.biomarkers?.length ? (
-            <p className="mt-3 text-xs text-slate-500 border-t border-emerald-200 pt-2">
-              {live.biomarkers.length} biomarkers captured · click to review →
-            </p>
-          ) : null}
-        </Link>
-
-        {/* ── Legacy mock-driven card ─────────────────────────────────── */}
-        <Link
-          href={`/doctor/patient/${DEMO_PATIENT_ID}`}
-          className="block rounded-lg border border-slate-200 p-4 hover:border-blue-800"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="font-medium text-slate-900">
-                {dashboard?.patient_name ?? 'Robert Halloway'}
-              </p>
-              <p className="text-sm text-slate-500">
-                {dashboard?.diagnosis ?? 'PD - Hoehn-Yahr Stage 2'}
-              </p>
-              {dashboard?.last_checkin_at && (
-                <p className="mt-1 text-xs text-slate-400">
-                  Last check-in:{' '}
-                  {new Date(dashboard.last_checkin_at).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                  })}
-                </p>
-              )}
-            </div>
-            {(dashboard?.alerts_count ?? 0) > 0 && (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                {dashboard?.alerts_count} alert{(dashboard?.alerts_count ?? 0) > 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-
-          {dashboard && (
-            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 md:grid-cols-4">
-              <MetricPreview
-                label="Kinematic Tremor"
-                value={kinematic?.values[0]}
-                trend={kinematic?.trend}
-              />
-              <MetricPreview label="Vocal Tremor" value={vocal?.values[0]} trend={vocal?.trend} />
-              <MetricPreview label="Resting HR" value={hr?.values[0]} trend={hr?.trend} />
-              <div className="rounded-lg bg-slate-50 p-2">
-                <p className="text-[10px] font-medium uppercase text-slate-500">Check-in Summary</p>
-                <p className="mt-1 line-clamp-2 text-xs text-slate-600">
-                  {dashboard.checkin_summary.excerpt}
-                </p>
-              </div>
-            </div>
-          )}
+      <div className="mt-6 flex items-baseline justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Patient Overview</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            All registered patients · most recent check-in first
+          </p>
+        </div>
+        <Link href="/doctor/cohort" className="text-sm text-blue-700 hover:underline">
+          Cohort analytics →
         </Link>
       </div>
 
-      <Link href="/doctor/cohort" className="mt-6 inline-block text-sm text-blue-800">
-        Cohort analytics →
-      </Link>
+      <div className="mt-8 space-y-3">
+        {loading && (
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-20 animate-pulse rounded-xl bg-zinc-100" />
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && patients.length === 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
+            No patients have registered yet. Share the app link to get started.
+          </div>
+        )}
+
+        {patients.map((p) => (
+          <Link
+            key={p.id}
+            href={`/doctor/patient/${p.id}`}
+            className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:border-slate-300 hover:shadow-md"
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="font-semibold text-slate-900 truncate">{p.name}</p>
+                {p.last_session && (
+                  <span className="hidden rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800 sm:inline">
+                    Active
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-slate-500 truncate">{p.diagnosis}</p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {p.last_session
+                  ? `Last check-in: ${new Date(p.last_session.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+                  : 'No check-ins yet'}
+              </p>
+            </div>
+
+            <div className="flex shrink-0 gap-2">
+              <RiskPill label="PD" score={p.risk_score?.parkinsons_score ?? null} />
+              <RiskPill label="DEM" score={p.risk_score?.dementia_score ?? null} />
+            </div>
+          </Link>
+        ))}
+      </div>
     </main>
   );
 }
@@ -149,9 +106,9 @@ export default function DoctorHome() {
 function RiskPill({ label, score }: { label: string; score: number | null }) {
   if (score == null) {
     return (
-      <div className="rounded-md border border-slate-200 bg-white px-2 py-1 text-center min-w-[56px]">
+      <div className="min-w-[56px] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-center">
         <p className="text-[9px] font-semibold uppercase text-slate-400">{label}</p>
-        <p className="font-mono text-sm font-semibold text-slate-400">—</p>
+        <p className="font-mono text-sm font-semibold text-slate-300">—</p>
       </div>
     );
   }
@@ -163,42 +120,9 @@ function RiskPill({ label, score }: { label: string; score: number | null }) {
         ? 'border-amber-300 bg-amber-50 text-amber-900'
         : 'border-emerald-300 bg-emerald-50 text-emerald-900';
   return (
-    <div className={`rounded-md border px-2 py-1 text-center min-w-[56px] ${cls}`}>
+    <div className={`min-w-[56px] rounded-lg border px-2 py-1 text-center ${cls}`}>
       <p className="text-[9px] font-semibold uppercase opacity-70">{label}</p>
       <p className="font-mono text-sm font-semibold">{pct.toFixed(0)}</p>
-    </div>
-  );
-}
-
-function MetricPreview({
-  label,
-  value,
-  trend,
-}: {
-  label: string;
-  value?: { name: string; value: number; unit: string };
-  trend?: string;
-}) {
-  return (
-    <div className="rounded-lg bg-slate-50 p-2">
-      <p className="text-[10px] font-medium uppercase text-slate-500">{label}</p>
-      {value ? (
-        <>
-          <p className="mt-1 font-mono text-sm font-semibold text-slate-900">
-            {formatMetricValue(value.name, value.value)}
-            <span className="text-xs font-normal text-slate-500"> {value.unit}</span>
-          </p>
-          {trend && (
-            <p
-              className={`text-[10px] ${trend.startsWith('↑') ? 'text-amber-700' : 'text-emerald-700'}`}
-            >
-              {trend}
-            </p>
-          )}
-        </>
-      ) : (
-        <p className="mt-1 text-xs text-slate-400">—</p>
-      )}
     </div>
   );
 }

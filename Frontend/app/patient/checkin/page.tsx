@@ -4,7 +4,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { startRecording, type RecorderHandle } from '@/lib/voice/recorder';
 import { MotionCapture } from '@/components/sensors/MotionCapture';
-import { CheckinVideoSession } from '@/components/patient/CheckinVideoSession';
+import {
+  CheckinVideoSession,
+  type ClinicalFaceResult,
+} from '@/components/patient/CheckinVideoSession';
 import { generateMockSamples } from '@/lib/biomarkers/motion';
 import { extractVoiceBiomarkers } from '@/lib/biomarkers/voice';
 import { DEMO_PATIENT_ID, type Sample } from '@/lib/types';
@@ -365,14 +368,22 @@ export default function CheckinPage() {
     }
   }
 
-  async function handleVideoComplete(durationSec: number) {
+  async function handleVideoComplete(_durationSec: number, faceResult?: ClinicalFaceResult) {
     setBusy(true);
     try {
-      const fakePcm = new Float32Array(Math.max(1, Math.round(durationSec * 16000)));
-      const voice = extractVoiceBiomarkers(fakePcm, 16000, {
-        seed: (sessionId ?? '').length + 1,
-      });
-      await postBiomarkers(voice);
+      if (faceResult) {
+        // Persist real camera biomarkers from MediaPipe + /api/biomarkers/clinical/face.
+        const cameraRows = [
+          { category: 'camera' as const, metric_name: 'blink_rate_per_min', value: faceResult.blink_rate_bpm, unit: 'bpm' },
+          { category: 'camera' as const, metric_name: 'total_blinks',       value: faceResult.total_blinks,   unit: 'count' },
+          { category: 'camera' as const, metric_name: 'expressivity_cv_pct', value: faceResult.expressivity_cv_pct, unit: '%' },
+          { category: 'camera' as const, metric_name: 'expressivity_variance', value: faceResult.expressivity_variance, unit: 'px2', raw_blob: { clinical_flags: faceResult.clinical_flags } },
+        ];
+        console.info('[video-biomarkers] persist', cameraRows);
+        await postBiomarkers(cameraRows);
+      } else {
+        console.warn('[video-biomarkers] no result — skipping camera biomarker persist');
+      }
       if (sessionId) {
         await fetch('/api/risk-score/compute', {
           method: 'POST',

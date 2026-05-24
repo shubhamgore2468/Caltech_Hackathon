@@ -279,7 +279,16 @@ async def process_clinical_face(payload: FacePayload):
       - expressivity_cv_pct   : coefficient of variation (std/mean × 100) — scale-free
       - clinical_flags  : list of human-readable warnings
     """
+    print(
+        f"[video-biomarkers] receive frames={len(payload.frames)}  "
+        f"duration={payload.duration_sec:.2f}s  fps={payload.fps:.2f}",
+        flush=True,
+    )
     if len(payload.frames) < 30:
+        print(
+            f"[video-biomarkers] reject frames={len(payload.frames)} (<30 required)",
+            flush=True,
+        )
         raise HTTPException(status_code=400, detail="Need at least 30 frames for reliable analysis.")
 
     fps = payload.fps
@@ -287,6 +296,12 @@ async def process_clinical_face(payload: FacePayload):
 
     ear_array = np.array([f.ear for f in payload.frames], dtype=float)
     mouth_array = np.array([f.mouth_area for f in payload.frames], dtype=float)
+    print(
+        f"[video-biomarkers] arrays ear[min={ear_array.min():.4f} max={ear_array.max():.4f} "
+        f"mean={ear_array.mean():.4f}]  mouth[min={mouth_array.min():.2f} max={mouth_array.max():.2f} "
+        f"mean={mouth_array.mean():.2f}  zero_frames={int((mouth_array == 0).sum())}]",
+        flush=True,
+    )
 
     # ── 1. Blink Detection via EAR ─────────────────────────────────────────
     # Why rolling-baseline instead of detrend():
@@ -364,7 +379,7 @@ async def process_clinical_face(payload: FacePayload):
     if total_blinks == 0:
         flags.append("No blinks detected — verify face was fully in frame and EAR signal is valid.")
 
-    return {
+    out = {
         "blink_rate_bpm": round(blink_rate_bpm, 2),
         "total_blinks": total_blinks,
         "expressivity_variance": round(expressivity_variance, 4),
@@ -377,3 +392,11 @@ async def process_clinical_face(payload: FacePayload):
             "duration_sec": duration_sec,
         },
     }
+    print(
+        f"[video-biomarkers] result blinks={total_blinks}  "
+        f"blink_rate={blink_rate_bpm:.2f}bpm  "
+        f"expr_var={expressivity_variance:.4f}  expr_cv={expressivity_cv_pct:.2f}%  "
+        f"flags={len(flags)}",
+        flush=True,
+    )
+    return out

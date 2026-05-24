@@ -28,16 +28,19 @@ const RING_SIZE = SAMPLE_RATE * GRAPH_WINDOW_SEC;
 const DURATION: Record<MotionMode, number> = {
   hand_tremor: 15,
   walk_test: 30,
+  lap_rest: 15,
 };
 
 const INSTRUCTIONS: Record<MotionMode, string> = {
   hand_tremor: 'Hold phone still in your dominant hand. Rest your elbow on a surface. Stay relaxed.',
   walk_test: 'Put phone in your front pocket. When you tap Start, walk normally for 30 seconds.',
+  lap_rest: 'Place phone flat on your lap. Sit still and relaxed for the full reading.',
 };
 
 const LABEL: Record<MotionMode, string> = {
   hand_tremor: 'Hand Tremor Test',
   walk_test: 'Walk Test',
+  lap_rest: 'Lap Rest Test',
 };
 
 type Phase = 'idle' | 'recording' | 'analyzing' | 'done' | 'error';

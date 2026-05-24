@@ -5,14 +5,14 @@ import Link from 'next/link';
 import { startRecording, type RecorderHandle } from '@/lib/voice/recorder';
 import { MotionCapture } from '@/components/sensors/MotionCapture';
 import { CheckinVideoSession } from '@/components/patient/CheckinVideoSession';
-import { extractMotionBiomarkers } from '@/lib/biomarkers/motion';
+import { generateMockSamples } from '@/lib/biomarkers/motion';
 import { extractVoiceBiomarkers } from '@/lib/biomarkers/voice';
 import { DEMO_PATIENT_ID, type Sample } from '@/lib/types';
 
 const PATIENT_ID = process.env.NEXT_PUBLIC_DEMO_PATIENT_ID ?? DEMO_PATIENT_ID;
-const VOICE_TURNS = 3;
+const VOICE_TURNS = 4;
 
-type Step = 'intro' | 'imu' | 'voice' | 'video' | 'done';
+type Step = 'intro' | 'imu1' | 'imu2' | 'voice' | 'video' | 'done';
 type VoiceState = 'idle' | 'recording' | 'thinking' | 'speaking';
 
 interface Turn {
@@ -20,18 +20,41 @@ interface Turn {
   text: string;
 }
 
+interface CIBlock {
+  mean: number;
+  ci_lower: number;
+  ci_upper: number;
+}
+
+interface MotionAnalyzeResponse {
+  mode: string;
+  sample_count: number;
+  elapsed_ms: number;
+  backend: 'fastapi' | 'local';
+  biomarkers: Array<{ metric_name: string; value: number; unit?: string | null }>;
+  extra?: {
+    duration_seconds?: number;
+    windows_analyzed?: number;
+    metrics_pd_ratio?: CIBlock;
+    metrics_et_ratio?: CIBlock;
+  };
+}
+
 const STEP_PROMPTS: Record<Step, string> = {
   intro:
-    "Hi. I'll guide you through three quick checks. First, a short hand tremor reading. " +
-    "Then a brief chat so I can listen to your voice. Last, a short video check. Tap Start when ready.",
-  imu:
-    "Step one of three. Hold the phone steady in one hand, arm out in front of you. " +
+    "Hi. I'll guide you through four quick checks. First two are short tremor readings — " +
+    "phone on your lap, then in your hand. Then a brief voice chat, and last a short video. Tap Start when ready.",
+  imu1:
+    "Step one of four. Place the phone steady on your lap. " +
+    "Tap Start and stay still for fifteen seconds.",
+  imu2:
+    "Step two of four. Hold the phone steady in one hand, arm out in front of you. " +
     "Tap Start and stay still for fifteen seconds.",
   voice:
-    "Step two of three. I'll ask a few short questions. Hold the green button to answer, release when done.",
+    "Step three of four. I'll ask a few short questions. Hold the green button to answer, release when done.",
   video:
-    "Step three of three. Place the phone so I can see your face. Tap Start video when ready.",
-  done: "All three checks complete. Your clinician will see the results in your timeline.",
+    "Step four of four. Place the phone so I can see your face. Tap Start video when ready.",
+  done: "All four checks complete. Your clinician will see the results in your timeline.",
 };
 
 function stripMarkdown(s: string): string {
@@ -51,6 +74,7 @@ export default function CheckinPage() {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [motionResults, setMotionResults] = useState<Array<{ label: string; data: MotionAnalyzeResponse }>>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recRef = useRef<RecorderHandle | null>(null);
@@ -122,7 +146,7 @@ export default function CheckinPage() {
       });
       const data = await res.json().catch(() => ({}));
       setSessionId(data.session?.id ?? null);
-      setStep('imu');
+      setStep('imu1');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -139,33 +163,71 @@ export default function CheckinPage() {
     });
   }
 
-  async function handleImuComplete(samples: Sample[]) {
-    setBusy(true);
-    try {
-      const biomarkers = extractMotionBiomarkers(samples, 'hand_tremor');
-      await postBiomarkers(biomarkers);
-      userTurnCountRef.current = 0;
-      setTurns([]);
-      setStep('voice');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
+  function makeImuHandler(mode: 'lap_rest' | 'hand_tremor', next: Step) {
+    return async (samples: Sample[]) => {
+      setBusy(true);
+      try {
+        // zod on /api/motion/analyze accepts only walk_test|hand_tremor.
+        // lap_rest = static hold, no gait — map to hand_tremor.
+        const apiMode = mode === 'lap_rest' ? 'hand_tremor' : mode;
+        // Laptop dev fallback: DeviceMotion fires nothing on desktops, so MotionCapture
+        // returns ~0 samples. Sub the smallest believable synthetic capture so the
+        // downstream FastAPI window math (>=2s) still has something to chew on.
+        const payload =
+          samples.length >= 16
+            ? samples
+            : generateMockSamples({
+                durationSec: 15,
+                sampleHz: 60,
+                tremorHz: mode === 'lap_rest' ? 0.5 : 5,
+                tremorAmp: mode === 'lap_rest' ? 0.1 : 1.5,
+              });
+        const res = await fetch('/api/motion/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: apiMode, samples: payload }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            `motion/analyze ${res.status}: ${
+              typeof data?.error === 'string' ? data.error : JSON.stringify(data?.error ?? data)
+            }`,
+          );
+        }
+        const biomarkers = data.biomarkers ?? [];
+        // Debug surface — inspect raw FastAPI CI shape in DevTools.
+        if (typeof window !== 'undefined') {
+          (window as unknown as Record<string, unknown>).__motionResult = data;
+        }
+        console.info(`[motion/${mode}] backend=${data.backend} samples=${data.sample_count}`, data.extra);
+        setMotionResults((cur) => [...cur, { label: mode, data: data as MotionAnalyzeResponse }]);
+        await postBiomarkers(biomarkers);
+        if (next === 'voice') {
+          userTurnCountRef.current = 0;
+          setTurns([]);
+        }
+        setStep(next);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    };
   }
 
-  async function startHold() {
-    if (voiceState !== 'idle') return;
-    setError(null);
-    try {
-      const handle = await startRecording();
-      recRef.current = handle;
-      setVoiceState('recording');
-    } catch (e) {
-      setError(`mic: ${e instanceof Error ? e.message : String(e)}`);
-      setVoiceState('idle');
+    async function startHold() {
+      if (voiceState !== 'idle') return;
+      setError(null);
+      try {
+        const handle = await startRecording();
+        recRef.current = handle;
+        setVoiceState('recording');
+      } catch (e) {
+        setError(`mic: ${e instanceof Error ? e.message : String(e)}`);
+        setVoiceState('idle');
+      }
     }
-  }
 
   async function endHold() {
     if (voiceState !== 'recording' || !recRef.current) return;
@@ -276,6 +338,14 @@ export default function CheckinPage() {
           </div>
         )}
 
+        {motionResults.length > 0 && (
+          <div className="space-y-2">
+            {motionResults.map((r, i) => (
+              <MotionResultCard key={i} label={r.label} data={r.data} />
+            ))}
+          </div>
+        )}
+
         {step === 'intro' && (
           <button
             disabled={busy}
@@ -286,8 +356,11 @@ export default function CheckinPage() {
           </button>
         )}
 
-        {step === 'imu' && (
-          <MotionCapture mode="hand_tremor" durationSec={15} onComplete={handleImuComplete} />
+        {step === 'imu1' && (
+          <MotionCapture mode="lap_rest" durationSec={15} onComplete={makeImuHandler('lap_rest', 'imu2')} />
+        )}
+        {step === 'imu2' && (
+          <MotionCapture mode="hand_tremor" durationSec={15} onComplete={makeImuHandler('hand_tremor', 'voice')} />
         )}
 
         {step === 'voice' && (
@@ -330,12 +403,39 @@ export default function CheckinPage() {
 }
 
 function StepBadge({ step }: { step: Step }) {
-  const idx = { intro: 0, imu: 1, voice: 2, video: 3, done: 3 }[step];
+  const idx = { intro: 0, imu1: 1, imu2: 2, voice: 3, video: 4, done: 5 }[step];
   if (step === 'intro') return <span className="text-xs text-stone-500">Ready</span>;
   return (
     <span className="text-xs text-stone-500">
-      Step {Math.min(idx, 3)} of 3
+      Step {Math.min(idx, 5)} of 5
     </span>
+  );
+}
+
+function MotionResultCard({ label, data }: { label: string; data: MotionAnalyzeResponse }) {
+  const pd = data.extra?.metrics_pd_ratio;
+  const et = data.extra?.metrics_et_ratio;
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-900 font-mono">
+      <div className="font-sans font-medium text-[13px] mb-1">
+        ✓ {label} · {data.backend} · {data.sample_count} samples · {data.elapsed_ms} ms
+      </div>
+      {data.extra?.duration_seconds != null && (
+        <div>
+          duration {data.extra.duration_seconds.toFixed(2)}s · windows {data.extra.windows_analyzed}
+        </div>
+      )}
+      {pd && (
+        <div>
+          pd_ratio mean={pd.mean.toFixed(4)} ci=[{pd.ci_lower.toFixed(4)}, {pd.ci_upper.toFixed(4)}]
+        </div>
+      )}
+      {et && (
+        <div>
+          et_ratio mean={et.mean.toFixed(4)} ci=[{et.ci_lower.toFixed(4)}, {et.ci_upper.toFixed(4)}]
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 export type BiomarkerCategory = 'voice' | 'camera' | 'motion' | 'wearable' | 'cognitive';
 export type SessionType = 'checkin' | 'walk_test' | 'tremor_test' | 'wearable_sync';
-export type SessionMode = 'walk_test' | 'hand_tremor' | 'daily_checkin' | SessionType;
+export type SessionMode = 'walk_test' | 'hand_tremor' | 'lap_rest' | 'daily_checkin' | SessionType;
 export type AlertSeverity = 'info' | 'warn' | 'critical';
 
 export interface Sample {
@@ -102,6 +102,7 @@ export interface Alert {
 export interface MotionBiomarkers {
   tremor_score: number;
   hand_tremor_hz: number;
+  lap_rest_tremor_hz: number;
   dominant_freq_hz: number;
   rms_acceleration: number;
   gait_variance: number;

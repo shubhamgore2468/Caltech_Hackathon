@@ -191,7 +191,7 @@ function gaitVariance(linear: number[], sampleHz: number): number {
   return Math.sqrt(varSum / intervals.length); // stddev in seconds
 }
 
-export type MotionMode = 'walk_test' | 'hand_tremor';
+export type MotionMode = 'walk_test' | 'hand_tremor' | 'lap_rest';
 
 export function extractMotionBiomarkers(
   samples: Sample[],
@@ -202,19 +202,20 @@ export function extractMotionBiomarkers(
   const sampleHz = estimateSampleHz(samples);
   const linear = linearMagnitude(samples);
   const spec = powerSpectrum(linear, sampleHz);
+  const prefix = mode; // 'lap_rest' | 'hand_tremor' | 'walk_test'
 
   const out: Biomarker[] = [];
 
   out.push({
     category: 'motion',
-    metric_name: 'rms_acceleration',
+    metric_name: `${prefix}.rms_acceleration`,
     value: rmsAcceleration(linear),
     unit: 'm/s^2',
   });
 
   out.push({
     category: 'motion',
-    metric_name: 'sample_hz',
+    metric_name: `${prefix}.sample_hz`,
     value: Math.round(sampleHz * 10) / 10,
     unit: 'hz',
   });
@@ -223,7 +224,7 @@ export function extractMotionBiomarkers(
   const tremorScore = bandPowerRatio(spec, 4, 6);
   out.push({
     category: 'motion',
-    metric_name: 'tremor_score',
+    metric_name: `${prefix}.tremor_score`,
     value: tremorScore,
     unit: 'ratio',
   });
@@ -231,7 +232,7 @@ export function extractMotionBiomarkers(
   const handTremorHz = dominantFreq(spec, 3, 8);
   out.push({
     category: 'motion',
-    metric_name: 'hand_tremor_hz',
+    metric_name: `${prefix}.hand_tremor_hz`,
     value: handTremorHz,
     unit: 'hz',
   });
@@ -239,7 +240,7 @@ export function extractMotionBiomarkers(
   const dominant = dominantFreq(spec, 0.5, Math.min(sampleHz / 2 - 1, 20));
   out.push({
     category: 'motion',
-    metric_name: 'dominant_freq_hz',
+    metric_name: `${prefix}.dominant_freq_hz`,
     value: dominant,
     unit: 'hz',
   });
@@ -247,7 +248,7 @@ export function extractMotionBiomarkers(
   if (mode === 'walk_test') {
     out.push({
       category: 'motion',
-      metric_name: 'gait_variance',
+      metric_name: `${prefix}.gait_variance`,
       value: gaitVariance(linear, sampleHz),
       unit: 's',
     });

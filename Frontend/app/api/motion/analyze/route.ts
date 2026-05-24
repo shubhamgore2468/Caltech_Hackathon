@@ -83,7 +83,7 @@ async function runAlgorithm(
       return {
         biomarkers: fastApiToBiomarkers(json),
         backend: 'fastapi',
-        extra: { duration_seconds: json.duration_seconds, windows_analyzed: json.windows_analyzed },
+        extra: json,
       };
     } finally {
       clearTimeout(timer);

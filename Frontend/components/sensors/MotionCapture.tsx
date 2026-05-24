@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 const GRAPH_WINDOW_SEC = 5;
 
 interface MotionCaptureProps {
-  mode: Extract<SessionMode, 'walk_test' | 'hand_tremor'>;
+  mode: Extract<SessionMode, 'walk_test' | 'hand_tremor' | 'lap_rest'>;
   durationSec?: number;
   onComplete?: (samples: Sample[]) => void;
 }
@@ -120,7 +120,11 @@ export function MotionCapture({ mode, durationSec, onComplete }: MotionCapturePr
     <div className="flex flex-col gap-4">
       <div className="rounded-xl bg-zinc-900 p-4">
         <div className="text-xs text-zinc-400 uppercase tracking-wider">
-          {mode === 'walk_test' ? 'Walk Test' : 'Hand Tremor Test'}
+          {mode === 'walk_test'
+            ? 'Walk Test'
+            : mode === 'lap_rest'
+            ? 'Rest Tremor (Lap)'
+            : 'Hand Tremor Test'}
         </div>
         <div className="text-3xl font-bold tabular-nums">
           {mc.sampleCount.toLocaleString()}

@@ -26,6 +26,21 @@ interface CIBlock {
   ci_upper: number;
 }
 
+interface VoiceBiomarkerPayload {
+  parselmouth_available?: boolean;
+  jitter_local_pct?: number | null;
+  shimmer_local_pct?: number | null;
+  hnr_db?: number | null;
+  mean_pitch_hz?: number | null;
+  classifier_available?: boolean;
+  pd_prediction?: 0 | 1 | null;
+  pd_probability?: number | null;
+  pd_vocal_risk_score?: number | null;
+  pd_risk_label?: 'low' | 'moderate' | 'high' | 'unknown';
+  wav2vec_available?: boolean;
+  [k: string]: unknown;
+}
+
 interface MotionAnalyzeResponse {
   mode: string;
   sample_count: number;
@@ -57,6 +72,37 @@ const STEP_PROMPTS: Record<Step, string> = {
   done: "All four checks complete. Your clinician will see the results in your timeline.",
 };
 
+// Project Biomarker shape that /api/biomarkers expects.
+type BiomarkerRow = {
+  category: 'voice';
+  metric_name: string;
+  value: number;
+  unit?: string;
+  raw_blob?: Record<string, unknown>;
+};
+
+function voicePayloadToBiomarkers(p: VoiceBiomarkerPayload, turn: number): BiomarkerRow[] {
+  const rows: BiomarkerRow[] = [];
+  const push = (metric_name: string, value: number | null | undefined, unit?: string) => {
+    if (value == null || Number.isNaN(value)) return;
+    rows.push({ category: 'voice', metric_name, value, unit });
+  };
+  push('jitter_local_pct', p.jitter_local_pct ?? undefined, '%');
+  push('shimmer_local_pct', p.shimmer_local_pct ?? undefined, '%');
+  push('hnr_db', p.hnr_db ?? undefined, 'dB');
+  push('mean_pitch_hz', p.mean_pitch_hz ?? undefined, 'hz');
+  push('pd_probability', p.pd_probability ?? undefined, 'ratio');
+  push('pd_prediction', p.pd_prediction ?? undefined, 'class');
+  // Stash full payload + turn index on first row for traceability.
+  if (rows.length) {
+    rows[0] = {
+      ...rows[0],
+      raw_blob: { turn, pd_risk_label: p.pd_risk_label ?? null, classifier_available: !!p.classifier_available },
+    };
+  }
+  return rows;
+}
+
 function stripMarkdown(s: string): string {
   return s
     .replace(/\*\*(.+?)\*\*/g, '$1')
@@ -75,6 +121,7 @@ export default function CheckinPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [motionResults, setMotionResults] = useState<Array<{ label: string; data: MotionAnalyzeResponse }>>([]);
+  const voiceBiomarkersRef = useRef<VoiceBiomarkerPayload[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recRef = useRef<RecorderHandle | null>(null);
@@ -236,6 +283,14 @@ export default function CheckinPage() {
     setVoiceState('thinking');
     try {
       const wav = await handle.stop();
+      // 44 bytes = empty WAV header w/ no samples — skip backend round-trip.
+      // ~16kB ≈ 0.5s of 16kHz PCM16 = minimum useful turn.
+      if (wav.size < 16_000) {
+        console.warn(`[voice-biomarkers] skip tiny wav (${wav.size}B) — hold mic longer`);
+        setError('Recording too short — hold the mic button and speak.');
+        setVoiceState('idle');
+        return;
+      }
       const form = new FormData();
       form.append('audio', wav, 'turn.wav');
       form.append('session_id', voiceSessionIdRef.current);
@@ -249,6 +304,21 @@ export default function CheckinPage() {
       const userText = stripMarkdown(res.headers.get('X-User-Transcript') ?? '');
       const assistantText = stripMarkdown(res.headers.get('X-Assistant-Transcript') ?? '');
       const audioBuf = await res.arrayBuffer();
+
+      // Voice biomarkers — backend returns full JSON dict in X-Voice-Biomarkers header.
+      // Persist to DB so the doctor dashboard can render them later.
+      const biomarkerHeader = res.headers.get('X-Voice-Biomarkers');
+      if (biomarkerHeader) {
+        try {
+          const parsed = JSON.parse(biomarkerHeader) as VoiceBiomarkerPayload;
+          console.info('[voice/biomarkers]', parsed);
+          voiceBiomarkersRef.current.push(parsed);
+          const rows = voicePayloadToBiomarkers(parsed, userTurnCountRef.current + 1);
+          if (rows.length) await postBiomarkers(rows);
+        } catch (err) {
+          console.warn('[voice/biomarkers] parse/persist failed', err);
+        }
+      }
 
       setTurns((cur) => [
         ...cur,
@@ -279,13 +349,16 @@ export default function CheckinPage() {
   async function finishVoiceStep() {
     setBusy(true);
     try {
-      // Voice biomarkers — placeholder PCM seeded by session length. Real DSP lives
-      // in /voice/biomarkers backend route; wire later if needed.
-      const fakePcm = new Float32Array(16000 * 5);
-      const voice = extractVoiceBiomarkers(fakePcm, 16000, {
-        seed: voiceSessionIdRef.current.length,
-      });
-      await postBiomarkers(voice);
+      // Real voice biomarkers were persisted per turn from the X-Voice-Biomarkers
+      // header. If the backend never returned any (e.g. classifier/Praat unavailable),
+      // fall back to the seeded mock so risk-score still has a voice row to fuse.
+      if (voiceBiomarkersRef.current.length === 0) {
+        const fakePcm = new Float32Array(16000 * 5);
+        const voice = extractVoiceBiomarkers(fakePcm, 16000, {
+          seed: voiceSessionIdRef.current.length,
+        });
+        await postBiomarkers(voice);
+      }
       setStep('video');
     } finally {
       setBusy(false);
@@ -345,6 +418,7 @@ export default function CheckinPage() {
             ))}
           </div>
         )}
+
 
         {step === 'intro' && (
           <button

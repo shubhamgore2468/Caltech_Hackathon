@@ -111,9 +111,23 @@ async def voice_turn_endpoint(
     }
 
     if include_biomarkers:
+        print(f"[voice-biomarkers] extract start  session={session_id}  wav_bytes={len(wav_bytes)}", flush=True)
         try:
             biomarkers = await extract_voice_biomarkers(wav_bytes)
-        except Exception:
+            print(
+                "[voice-biomarkers] extract ok    "
+                f"praat={biomarkers.get('parselmouth_available')}  "
+                f"clf={biomarkers.get('classifier_available')}  "
+                f"jitter={biomarkers.get('jitter_local_pct')}  "
+                f"shimmer={biomarkers.get('shimmer_local_pct')}  "
+                f"hnr={biomarkers.get('hnr_db')}  "
+                f"pd_prob={biomarkers.get('pd_probability')}  "
+                f"pd_pred={biomarkers.get('pd_prediction')}  "
+                f"label={biomarkers.get('pd_risk_label')}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[voice-biomarkers] extract FAIL {type(e).__name__}: {e}", flush=True)
             biomarkers = {}
         headers["X-Voice-Biomarkers"] = _sanitize_header(json.dumps(biomarkers))
 

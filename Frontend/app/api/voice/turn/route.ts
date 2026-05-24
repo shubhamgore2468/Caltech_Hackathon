@@ -6,10 +6,12 @@ import { NextResponse } from 'next/server';
 //     audio: WAV PCM16 mono 16kHz
 //     session_id: string
 //     patient_id: string
+//     include_biomarkers: 'true' to also extract Parselmouth + classifier features
 //   Response: audio/wav body (TTS), headers:
 //     X-User-Transcript: STT result
 //     X-Assistant-Transcript: Claude reply text
 //     X-Cognitive-Flags: optional JSON
+//     X-Voice-Biomarkers: JSON dict (jitter/shimmer/hnr + pd_prediction/pd_probability)
 //
 // Backend owns conversation state keyed by session_id.
 
@@ -36,13 +38,17 @@ export async function POST(req: Request) {
     );
   }
 
+  const includeBiomarkers = incoming.get('include_biomarkers');
   const forward = new FormData();
   forward.append('audio', audio, 'turn.wav');
   forward.append('session_id', String(sessionId));
   forward.append('patient_id', String(patientId));
+  // Default ON — chunk 2 wiring. Frontend can pass 'false' to skip per-turn biomarkers.
+  forward.append('include_biomarkers', includeBiomarkers === 'false' ? 'false' : 'true');
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  // Biomarker extraction adds ~5–15s (Praat + classifier). Was 30s; bump to 60s.
+  const timer = setTimeout(() => ctrl.abort(), 60_000);
   try {
     const res = await fetch(`${svc.replace(/\/$/, '')}/voice/turn`, {
       method: 'POST',
@@ -61,7 +67,31 @@ export async function POST(req: Request) {
     const body = await res.arrayBuffer();
     const headers = new Headers();
     headers.set('Content-Type', res.headers.get('Content-Type') ?? 'audio/wav');
-    for (const k of ['X-User-Transcript', 'X-Assistant-Transcript', 'X-Cognitive-Flags']) {
+    const vbHeader = res.headers.get('X-Voice-Biomarkers');
+    console.log(
+      `[voice-biomarkers] proxy ${vbHeader ? 'header present' : 'header MISSING'} len=${vbHeader?.length ?? 0}`,
+    );
+    if (vbHeader) {
+      try {
+        const parsed = JSON.parse(vbHeader) as Record<string, unknown>;
+        console.log('[voice-biomarkers] proxy parsed', {
+          jitter_local_pct: parsed.jitter_local_pct,
+          shimmer_local_pct: parsed.shimmer_local_pct,
+          hnr_db: parsed.hnr_db,
+          pd_probability: parsed.pd_probability,
+          pd_risk_label: parsed.pd_risk_label,
+          classifier_available: parsed.classifier_available,
+        });
+      } catch (err) {
+        console.warn('[voice-biomarkers] proxy parse failed', err);
+      }
+    }
+    for (const k of [
+      'X-User-Transcript',
+      'X-Assistant-Transcript',
+      'X-Cognitive-Flags',
+      'X-Voice-Biomarkers',
+    ]) {
       const v = res.headers.get(k);
       if (v) headers.set(k, v);
     }

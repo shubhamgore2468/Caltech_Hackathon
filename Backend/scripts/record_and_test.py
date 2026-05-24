@@ -109,7 +109,7 @@ def print_results(result: dict) -> None:
     p_label  = bm.get("parselmouth_available", False)
 
     print("=" * 55)
-    print("  NEUROTRACK — VOICE BIOMARKER RESULTS")
+    print("  TREMELO — VOICE BIOMARKER RESULTS")
     print("=" * 55)
 
     if clf_ok and prob is not None:

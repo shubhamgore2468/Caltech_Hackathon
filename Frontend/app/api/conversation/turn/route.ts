@@ -11,7 +11,7 @@ const TurnSchema = z.object({
   session_id: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/).optional(),
 });
 
-const SYSTEM_PROMPT = `You are NeuroTrack, a warm, friendly health assistant doing a brief daily check-in with an older adult.
+const SYSTEM_PROMPT = `You are Tremelo, a warm, friendly health assistant doing a brief daily check-in with an older adult.
 
 Tone:
 - Conversational, kind, never clinical or alarming.

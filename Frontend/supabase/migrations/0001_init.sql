@@ -1,4 +1,4 @@
--- NeuroTrack initial schema
+-- Tremelo initial schema
 
 create extension if not exists "pgcrypto";
 

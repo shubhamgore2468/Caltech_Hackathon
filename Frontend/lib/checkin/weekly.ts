@@ -38,7 +38,7 @@ export interface WeeklyCheckinRecord {
   sessionId?: string;
 }
 
-const STORAGE_KEY = 'neurotrack_weekly_checkins';
+const STORAGE_KEY = 'tremelo_weekly_checkins';
 
 export function loadCheckinHistory(patientId: string): WeeklyCheckinRecord[] {
   if (typeof window === 'undefined') return [];

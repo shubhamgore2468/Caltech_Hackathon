@@ -22,7 +22,7 @@ export default function PatientHome() {
     <main className="min-h-screen bg-white p-6">
       <div className="mx-auto max-w-md">
         <BackButton href="/" label="Home" />
-        <h1 className="mt-4 text-2xl font-bold text-slate-900">NeuroTrack</h1>
+        <h1 className="mt-4 text-2xl font-bold text-slate-900">Tremelo</h1>
         <p className="mt-1 text-sm text-slate-600">Your weekly monitoring companion</p>
 
         <div className="mt-6">

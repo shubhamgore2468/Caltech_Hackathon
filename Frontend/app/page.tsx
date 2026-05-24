@@ -180,7 +180,7 @@ function Navbar() {
     <nav className="fixed inset-x-0 top-0 z-50 border-b border-white/40 bg-white/70 backdrop-blur-xl">
       <div className="mx-auto flex h-20 max-w-5xl items-center justify-between px-6">
         <Link href="/" className="text-xl font-semibold tracking-tight text-zinc-900">
-          NeuroTrack
+          Tremelo
         </Link>
 
         {/* desktop links */}
@@ -531,7 +531,7 @@ function Footer() {
   return (
     <footer className="border-t border-zinc-200/50 bg-white/40 backdrop-blur-sm">
       <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-3 px-5 py-6 text-[13px] text-zinc-400 sm:flex-row">
-        <span>© 2026 NeuroTrack</span>
+        <span>© 2026 Tremelo</span>
         <div className="flex gap-5">
           <a href="#how" className="cursor-pointer transition-colors hover:text-zinc-600">How it works</a>
           <a href="#privacy" className="cursor-pointer transition-colors hover:text-zinc-600">Privacy</a>

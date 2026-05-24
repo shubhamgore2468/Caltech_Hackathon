@@ -1,4 +1,4 @@
--- NeuroTrack — clerk user → patient mapping
+-- Tremelo — clerk user → patient mapping
 -- Maps Clerk auth user IDs to patient rows so check-ins are saved under the
 -- real logged-in user rather than the hardcoded demo patient.
 -- Also adds diagnosis + created_at columns that the /api/patients list already

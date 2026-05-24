@@ -1,4 +1,4 @@
-# NeuroTrack
+# Tremelo
 
 Parkinson's & dementia longitudinal monitoring platform — Caltech Longevity Hackathon.
 

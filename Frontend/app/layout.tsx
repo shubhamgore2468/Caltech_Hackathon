@@ -13,7 +13,7 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: 'NeuroTrack',
+  title: 'Tremelo',
   description: "Parkinson's & dementia longitudinal monitoring platform",
 };
 

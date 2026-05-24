@@ -1,4 +1,4 @@
--- NeuroTrack initial schema
+-- Tremelo initial schema
 -- INTEGRATION POINT: extend for auth + RLS post-hackathon
 
 create extension if not exists "pgcrypto";

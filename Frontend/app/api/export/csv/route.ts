@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   return new NextResponse(header + rows, {
     headers: {
       'Content-Type': 'text/csv',
-      'Content-Disposition': `attachment; filename="neurotrack-${patientId}-export.csv"`,
+      'Content-Disposition': `attachment; filename="tremelo-${patientId}-export.csv"`,
     },
   });
 }

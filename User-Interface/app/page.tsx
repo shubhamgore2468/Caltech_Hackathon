@@ -8,7 +8,7 @@ export default function Home() {
         <BackButton />
       </div>
       <div className="max-w-lg text-center">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">NeuroTrack</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Tremelo</h1>
         <p className="mt-2 text-slate-600">
           Parkinson&apos;s &amp; dementia longitudinal monitoring for the Caltech Longevity Hackathon
         </p>

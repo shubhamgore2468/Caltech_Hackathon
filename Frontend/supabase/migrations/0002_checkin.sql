@@ -1,4 +1,4 @@
--- NeuroTrack — checkin persistence (Path A)
+-- Tremelo — checkin persistence (Path A)
 -- Adds step + turn discriminators, patient_id back-refs, broader category enum,
 -- session_type alongside legacy mode, conversation timestamps.
 -- Safe to re-run (idempotent guards).

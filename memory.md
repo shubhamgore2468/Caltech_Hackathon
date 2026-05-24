@@ -1,8 +1,8 @@
-# NeuroTrack — 24h Hackathon Plan
+# Tremelo — 24h Hackathon Plan
 
 ## Context
 
-Caltech Longevity Hackathon, 4-person team, 24h. Build NeuroTrack: research data-gathering platform for Parkinson's & dementia longitudinal tracking. Two portals — patient (mobile, friendly) + doctor (clinical dashboard). Demo arc: patient does AI voice check-in + walk/tremor test → biomarkers extracted → composite risk score → doctor sees longitudinal trends + alerts.
+Caltech Longevity Hackathon, 4-person team, 24h. Build Tremelo: research data-gathering platform for Parkinson's & dementia longitudinal tracking. Two portals — patient (mobile, friendly) + doctor (clinical dashboard). Demo arc: patient does AI voice check-in + walk/tremor test → biomarkers extracted → composite risk score → doctor sees longitudinal trends + alerts.
 
 User is tech lead coordinating all 4 streams. Original spec assumed IMU was an HTTP server; investigation shows it is actually a self-contained phone-side DeviceMotion capture UI (`/Users/shubhamgore/Development/Caltech/IMU/index.html`). Plan corrects for that and locks fidelity tradeoffs: real motion capture, mocked voice/camera (realistic values, no DSP), synthetic 6-week history with live session appended at demo time.
 

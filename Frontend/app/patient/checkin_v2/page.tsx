@@ -857,12 +857,16 @@ function ConvoPanel({
   onCancel: () => void;
 }) {
   const busy = voiceState === 'thinking' || voiceState === 'speaking';
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [turns.length, voiceState]);
   return (
     <div className="space-y-3">
       <p className="text-xs text-stone-500">
         Question {Math.min(count + 1, target)} of {target} · {statusMsg}
       </p>
-      <div className="space-y-2 max-h-64 overflow-y-auto">
+      <div className="space-y-2">
         {turns.map((t, i) => (
           <div
             key={i}
@@ -876,7 +880,7 @@ function ConvoPanel({
           </div>
         ))}
       </div>
-      <div className="flex flex-col items-center gap-2 pt-2">
+      <div ref={bottomRef} className="flex flex-col items-center gap-2 pt-2">
         <button
           disabled={busy}
           onMouseDown={onStart}

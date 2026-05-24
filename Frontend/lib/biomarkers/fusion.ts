@@ -92,6 +92,10 @@ export interface FusionInput {
   cognitive?: CognitiveFlags | null;
 }
 
+export function fuseRiskScores(biomarkers: Biomarker[], cognitive?: CognitiveFlags | null): RiskScore {
+  return computeRiskScore({ biomarkers, cognitive });
+}
+
 export function computeRiskScore({ biomarkers, cognitive }: FusionInput): RiskScore {
   // Flatten biomarkers + cognitive into a name→value map.
   const byName = new Map<string, number>();

@@ -8,3 +8,7 @@ export function getServerSupabase() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
+
+export function createServerClient() {
+  return getServerSupabase();
+}

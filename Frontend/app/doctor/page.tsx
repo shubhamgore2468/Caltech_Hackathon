@@ -7,14 +7,28 @@ import { formatMetricValue } from '@/lib/clinical/metric-definitions';
 import type { DoctorDashboardSummary } from '@/lib/clinical/dashboard';
 
 const DEMO_PATIENT_ID = process.env.NEXT_PUBLIC_DEMO_PATIENT_ID ?? 'demo-001';
+const LIVE_PATIENT_ID = '00000000-0000-0000-0000-000000000001';
+
+interface LivePatientSummary {
+  patient: { id: string; name?: string | null; diagnosis?: string | null };
+  session: { recorded_at?: string | null; started_at?: string | null } | null;
+  biomarkers: { metric_name: string; value: number }[];
+  risk_score: { parkinsons_score: number; dementia_score: number } | null;
+  mock: boolean;
+}
 
 export default function DoctorHome() {
   const [dashboard, setDashboard] = useState<DoctorDashboardSummary | null>(null);
+  const [live, setLive] = useState<LivePatientSummary | null>(null);
 
   useEffect(() => {
     fetch(`/api/patients/${DEMO_PATIENT_ID}/dashboard`)
       .then((r) => r.json())
       .then(setDashboard);
+    fetch(`/api/patients/${LIVE_PATIENT_ID}/latest`)
+      .then((r) => r.json())
+      .then(setLive)
+      .catch(() => setLive(null));
   }, []);
 
   const kinematic = dashboard?.pillars.find((p) => p.id === 'kinematic_tremor');
@@ -29,11 +43,56 @@ export default function DoctorHome() {
         Weekly check-in monitoring · kinematic, vocal, autonomic &amp; clinical context
       </p>
 
-      <div className="mt-8">
+      <div className="mt-8 space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Patients</h2>
+
+        {/* ── Live patient card (real Supabase data) ─────────────────── */}
+        <Link
+          href={`/doctor/patient/${LIVE_PATIENT_ID}`}
+          className="block rounded-lg border border-emerald-200 bg-emerald-50/40 p-4 hover:border-emerald-500 transition-colors"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="font-medium text-slate-900">
+                  {live?.patient?.name ?? 'Demo Patient'}
+                </p>
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Live
+                </span>
+              </div>
+              <p className="text-sm text-slate-500">{live?.patient?.diagnosis ?? '—'}</p>
+              <p className="mt-0.5 text-[11px] font-mono text-slate-400 truncate">{LIVE_PATIENT_ID}</p>
+              {live?.session?.recorded_at || live?.session?.started_at ? (
+                <p className="mt-1 text-xs text-slate-400">
+                  Last check-in:{' '}
+                  {new Date(live.session.recorded_at ?? live.session.started_at!).toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-400">No sessions yet</p>
+              )}
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <RiskPill label="PD" score={live?.risk_score?.parkinsons_score ?? null} />
+              <RiskPill label="DEM" score={live?.risk_score?.dementia_score ?? null} />
+            </div>
+          </div>
+          {live?.biomarkers?.length ? (
+            <p className="mt-3 text-xs text-slate-500 border-t border-emerald-200 pt-2">
+              {live.biomarkers.length} biomarkers captured · click to review →
+            </p>
+          ) : null}
+        </Link>
+
+        {/* ── Legacy mock-driven card ─────────────────────────────────── */}
         <Link
           href={`/doctor/patient/${DEMO_PATIENT_ID}`}
-          className="mt-3 block rounded-lg border border-slate-200 p-4 hover:border-blue-800"
+          className="block rounded-lg border border-slate-200 p-4 hover:border-blue-800"
         >
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -84,6 +143,30 @@ export default function DoctorHome() {
         Cohort analytics →
       </Link>
     </main>
+  );
+}
+
+function RiskPill({ label, score }: { label: string; score: number | null }) {
+  if (score == null) {
+    return (
+      <div className="rounded-md border border-slate-200 bg-white px-2 py-1 text-center min-w-[56px]">
+        <p className="text-[9px] font-semibold uppercase text-slate-400">{label}</p>
+        <p className="font-mono text-sm font-semibold text-slate-400">—</p>
+      </div>
+    );
+  }
+  const pct = score * 100;
+  const cls =
+    pct >= 65
+      ? 'border-rose-300 bg-rose-50 text-rose-900'
+      : pct >= 35
+        ? 'border-amber-300 bg-amber-50 text-amber-900'
+        : 'border-emerald-300 bg-emerald-50 text-emerald-900';
+  return (
+    <div className={`rounded-md border px-2 py-1 text-center min-w-[56px] ${cls}`}>
+      <p className="text-[9px] font-semibold uppercase opacity-70">{label}</p>
+      <p className="font-mono text-sm font-semibold">{pct.toFixed(0)}</p>
+    </div>
   );
 }
 

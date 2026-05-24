@@ -57,16 +57,47 @@ function fastApiToBiomarkers(r: FastApiResponse): Biomarker[] {
   ];
 }
 
+interface ErrCause {
+  code?: string;
+  errno?: string;
+  syscall?: string;
+  hostname?: string;
+  address?: string;
+  port?: number;
+}
+
+function describeError(e: unknown) {
+  if (!(e instanceof Error)) return { message: String(e) };
+  const cause = (e as { cause?: ErrCause }).cause ?? {};
+  return {
+    name: e.name,
+    message: e.message,
+    code: cause.code,
+    errno: cause.errno,
+    syscall: cause.syscall,
+    hostname: cause.hostname,
+    address: cause.address,
+    port: cause.port,
+  };
+}
+
 async function runAlgorithm(
   samples: Sample[],
   mode: MotionMode,
-): Promise<{ biomarkers: Biomarker[]; backend: 'fastapi' | 'local'; extra?: unknown }> {
+): Promise<{ biomarkers: Biomarker[]; backend: 'fastapi' | 'local'; extra?: unknown; upstreamError?: unknown }> {
   const svc = process.env.MOTION_SVC_URL;
+  console.log('[motion/analyze] svc_set=%s mode=%s samples=%d', Boolean(svc), mode, samples.length);
   if (svc) {
+    const target = `${svc.replace(/\/$/, '')}/analyze`;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15_000);
+    const t0 = Date.now();
+    const timer = setTimeout(() => {
+      console.warn('[motion/analyze] abort after 15s target=%s', target);
+      ctrl.abort();
+    }, 15_000);
     try {
-      const res = await fetch(`${svc.replace(/\/$/, '')}/analyze`, {
+      console.log('[motion/analyze] fetch target=%s', target);
+      const res = await fetch(target, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ patient_data: samples }),
@@ -74,21 +105,29 @@ async function runAlgorithm(
       });
       if (!res.ok) {
         const text = await res.text();
+        console.error('[motion/analyze] upstream status=%d body=%s', res.status, text.slice(0, 500));
         throw new Error(`fastapi ${res.status}: ${text.slice(0, 200)}`);
       }
       const json = (await res.json()) as FastApiResponse;
       if (!json?.metrics_pd_ratio || !json?.metrics_et_ratio) {
+        console.error('[motion/analyze] bad response shape %o', json);
         throw new Error('fastapi response missing metrics_{pd,et}_ratio');
       }
+      console.log('[motion/analyze] fastapi ok elapsed_ms=%d windows=%d', Date.now() - t0, json.windows_analyzed);
       return {
         biomarkers: fastApiToBiomarkers(json),
         backend: 'fastapi',
         extra: json,
       };
+    } catch (e) {
+      const info = describeError(e);
+      console.error('[motion/analyze] fastapi failed target=%s elapsed_ms=%d %o', target, Date.now() - t0, info);
+      throw Object.assign(new Error('motion fastapi failed'), { detail: info, target });
     } finally {
       clearTimeout(timer);
     }
   }
+  console.log('[motion/analyze] using local TS fallback');
   return { biomarkers: extractMotionBiomarkers(samples, mode), backend: 'local' };
 }
 
@@ -114,8 +153,14 @@ export async function POST(req: Request) {
       extra,
     });
   } catch (e) {
+    const detail = (e as { detail?: unknown }).detail;
+    const target = (e as { target?: string }).target;
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : String(e) },
+      {
+        error: e instanceof Error ? e.message : String(e),
+        detail,
+        target,
+      },
       { status: 502 },
     );
   }

@@ -17,9 +17,36 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
+interface ErrCause {
+  code?: string;
+  errno?: string;
+  syscall?: string;
+  hostname?: string;
+  address?: string;
+  port?: number;
+}
+
+function describeError(e: unknown) {
+  if (!(e instanceof Error)) return { message: String(e) };
+  const cause = (e as { cause?: ErrCause }).cause ?? {};
+  return {
+    name: e.name,
+    message: e.message,
+    code: cause.code,
+    errno: cause.errno,
+    syscall: cause.syscall,
+    hostname: cause.hostname,
+    address: cause.address,
+    port: cause.port,
+  };
+}
+
 export async function POST(req: Request) {
+  const t0 = Date.now();
   const svc = process.env.VOICE_SVC_URL;
+  console.log('[voice/turn] start svc_set=%s', Boolean(svc));
   if (!svc) {
+    console.warn('[voice/turn] VOICE_SVC_URL missing');
     return NextResponse.json(
       { error: 'VOICE_SVC_URL not configured' },
       { status: 503 },
@@ -46,11 +73,17 @@ export async function POST(req: Request) {
   // Default ON — chunk 2 wiring. Frontend can pass 'false' to skip per-turn biomarkers.
   forward.append('include_biomarkers', includeBiomarkers === 'false' ? 'false' : 'true');
 
+  const target = `${svc.replace(/\/$/, '')}/voice/turn`;
+  const audioSize = audio instanceof Blob ? audio.size : 0;
+  console.log('[voice/turn] fetch target=%s audio_bytes=%d session=%s', target, audioSize, sessionId);
   const ctrl = new AbortController();
   // Biomarker extraction adds ~5–15s (Praat + classifier). Was 30s; bump to 60s.
-  const timer = setTimeout(() => ctrl.abort(), 60_000);
+  const timer = setTimeout(() => {
+    console.warn('[voice/turn] abort after 60s target=%s', target);
+    ctrl.abort();
+  }, 60_000);
   try {
-    const res = await fetch(`${svc.replace(/\/$/, '')}/voice/turn`, {
+    const res = await fetch(target, {
       method: 'POST',
       body: forward,
       signal: ctrl.signal,
@@ -58,6 +91,7 @@ export async function POST(req: Request) {
 
     if (!res.ok) {
       const text = await res.text();
+      console.error('[voice/turn] upstream status=%d body=%s', res.status, text.slice(0, 500));
       return NextResponse.json(
         { error: `voice service ${res.status}: ${text.slice(0, 300)}` },
         { status: 502 },
@@ -95,10 +129,13 @@ export async function POST(req: Request) {
       const v = res.headers.get(k);
       if (v) headers.set(k, v);
     }
+    console.log('[voice/turn] ok bytes=%d elapsed_ms=%d', body.byteLength, Date.now() - t0);
     return new Response(body, { status: 200, headers });
   } catch (e) {
+    const info = describeError(e);
+    console.error('[voice/turn] fetch failed target=%s elapsed_ms=%d %o', target, Date.now() - t0, info);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : String(e) },
+      { error: 'voice turn fetch failed', detail: info, target },
       { status: 502 },
     );
   } finally {

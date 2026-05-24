@@ -29,7 +29,7 @@ export default function PatientHome() {
           <WeeklyCheckinCalendar patientId={PATIENT_ID} />
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-3">
+        {/* <div className="mt-6 grid grid-cols-2 gap-3">
           <Link
             href="/patient/motion"
             className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-center hover:border-blue-800"
@@ -54,7 +54,7 @@ export default function PatientHome() {
             <h2 className="mt-1 font-semibold text-slate-900">Vision</h2>
             <p className="text-xs text-slate-600">Video Detection</p>
           </Link>
-        </div>
+        </div> */}
 
         <div className="mt-6 space-y-3">
           {weekStatus === null ? (
@@ -63,7 +63,7 @@ export default function PatientHome() {
             </div>
           ) : weekStatus.canStart ? (
             <Link
-              href="/patient/video"
+              href="/patient/checkin_v2"
               className="block rounded-xl border border-blue-200 bg-blue-50 p-4 hover:border-blue-800"
             >
               <h2 className="font-semibold text-slate-900">Start Weekly Check-in</h2>

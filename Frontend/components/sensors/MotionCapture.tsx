@@ -3,7 +3,6 @@
 import { useEffect, useRef } from 'react';
 import { useMotionCapture } from './useMotionCapture';
 import type { Sample, SessionMode } from '@/lib/types';
-import { Button } from '@/components/ui/button';
 
 const GRAPH_WINDOW_SEC = 5;
 
@@ -65,11 +64,11 @@ export function MotionCapture({ mode, durationSec, onComplete }: MotionCapturePr
       const h = rect.height;
       const r = ringRef.current;
 
-      ctx.fillStyle = '#0b0e14';
+      ctx.fillStyle = '#f8fafc';
       ctx.fillRect(0, 0, w, h);
 
       // zero line
-      ctx.strokeStyle = '#30363d';
+      ctx.strokeStyle = '#cbd5e1';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, h / 2);
@@ -94,9 +93,9 @@ export function MotionCapture({ mode, durationSec, onComplete }: MotionCapturePr
       };
 
       const range = 20; // m/s^2
-      drawAxis(r.x, '#f85149', range);
-      drawAxis(r.y, '#3fb950', range);
-      drawAxis(r.z, '#58a6ff', range);
+      drawAxis(r.x, '#dc2626', range);
+      drawAxis(r.y, '#059669', range);
+      drawAxis(r.z, '#1e40af', range);
 
       raf = requestAnimationFrame(draw);
     };
@@ -117,39 +116,42 @@ export function MotionCapture({ mode, durationSec, onComplete }: MotionCapturePr
   }, [mc.recording, mc.samples, onComplete]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="rounded-xl bg-zinc-900 p-4">
-        <div className="text-xs text-zinc-400 uppercase tracking-wider">
+    <div className="flex flex-col gap-3">
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="text-xs text-slate-500 uppercase tracking-wider">
           {mode === 'walk_test'
             ? 'Walk Test'
             : mode === 'lap_rest'
             ? 'Rest Tremor (Lap)'
             : 'Hand Tremor Test'}
         </div>
-        <div className="text-3xl font-bold tabular-nums">
+        <div className="mt-1 text-3xl font-bold tabular-nums text-slate-900">
           {mc.sampleCount.toLocaleString()}
-          <span className="text-sm font-normal text-zinc-400 ml-2">samples</span>
+          <span className="text-sm font-normal text-slate-500 ml-2">samples</span>
         </div>
-        <div className="text-xs text-zinc-500 mt-1">{mc.status}</div>
-        {mc.error && <div className="text-xs text-red-400 mt-1">{mc.error}</div>}
+        <div className="text-xs text-slate-500 mt-1">{mc.status}</div>
+        {mc.error && <div className="text-xs text-rose-600 mt-1">{mc.error}</div>}
       </div>
 
-      <canvas ref={canvasRef} className="w-full h-40 rounded-xl border border-zinc-800" />
+      <canvas ref={canvasRef} className="w-full h-40 rounded-xl border border-slate-200 bg-slate-50" />
 
-      <div className="flex items-center gap-2 text-xs text-zinc-400">
-        <span className="inline-block w-3 h-3 rounded-full bg-[#f85149]" /> X
-        <span className="inline-block w-3 h-3 rounded-full bg-[#3fb950] ml-3" /> Y
-        <span className="inline-block w-3 h-3 rounded-full bg-[#58a6ff] ml-3" /> Z
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#dc2626]" /> X
+        <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#059669] ml-3" /> Y
+        <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1e40af] ml-3" /> Z
       </div>
 
-      <Button
-        size="lg"
-        className="w-full text-lg py-6"
+      <button
+        type="button"
         onClick={() => (mc.recording ? mc.stop() : mc.start())}
-        variant={mc.recording ? 'destructive' : 'default'}
+        className={`w-full rounded-xl px-4 py-3 font-semibold border transition ${
+          mc.recording
+            ? 'border-rose-200 bg-rose-50 text-rose-800 hover:border-rose-800'
+            : 'border-blue-200 bg-blue-50 text-blue-900 hover:border-blue-800'
+        }`}
       >
         {mc.recording ? `Stop (${dur}s auto)` : `Start ${dur}s capture`}
-      </Button>
+      </button>
     </div>
   );
 }

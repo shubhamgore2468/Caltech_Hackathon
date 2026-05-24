@@ -278,6 +278,8 @@ export default function CheckinV2Page() {
       }));
       console.info('[checkin_v2] lap_rest', { backend: data.backend, samples: data.sample_count, extra: data.extra });
       await postBiomarkers(biomarkers);
+      setStatusMsg('Motion captured. Starting conversation in 3s…');
+      await new Promise((r) => setTimeout(r, 3000));
       enterConvo();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -666,6 +668,8 @@ export default function CheckinV2Page() {
           body: JSON.stringify({ ended_at: new Date().toISOString() }),
         });
       }
+      setStatusMsg('All set — finalizing your report…');
+      await new Promise((r) => setTimeout(r, 3000));
       setStep('done');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -689,10 +693,10 @@ export default function CheckinV2Page() {
 
   // ── render ─────────────────────────────────────────────────────────────
   return (
-    <main className="min-h-screen bg-stone-50 text-stone-900">
-      <header className="sticky top-0 z-10 bg-stone-50/90 backdrop-blur border-b border-stone-200 px-4 py-3 max-w-md mx-auto w-full">
+    <main className="min-h-screen bg-white text-slate-900">
+      <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200 px-4 py-3 max-w-md mx-auto w-full">
         <div className="flex items-center justify-between">
-          <h1 className="text-base font-medium">Guided Check-in (v2)</h1>
+          <h1 className="text-base font-semibold text-slate-900">Weekly Check-in</h1>
           <StepBadge step={step} />
         </div>
       </header>
@@ -743,13 +747,13 @@ export default function CheckinV2Page() {
             <div className="flex gap-2">
               <Link
                 href="/patient/progress-reports"
-                className="flex-1 text-center rounded-lg bg-blue-800 px-3 py-2 text-sm text-white"
+                className="flex-1 text-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-900 hover:border-blue-800"
               >
                 View progress
               </Link>
               <Link
                 href="/patient"
-                className="flex-1 text-center rounded-lg border border-stone-300 px-3 py-2 text-sm"
+                className="flex-1 text-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-400"
               >
                 Done
               </Link>
@@ -768,16 +772,16 @@ function StepBadge({ step }: { step: Step }) {
     convo: 'Step 2 of 2',
     done: 'Complete',
   };
-  return <span className="text-xs text-stone-500">{labels[step]}</span>;
+  return <span className="text-xs text-slate-500">{labels[step]}</span>;
 }
 
 function AgentBubble({ text }: { text: string }) {
   return (
     <div className="flex gap-2 items-start">
-      <div className="h-8 w-8 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-medium shrink-0">
+      <div className="h-8 w-8 rounded-full bg-blue-800 text-white text-xs flex items-center justify-center font-semibold shrink-0">
         AI
       </div>
-      <div className="bg-white border border-stone-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-[15px] leading-relaxed shadow-sm">
+      <div className="bg-blue-50 border border-blue-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-[15px] leading-relaxed text-slate-800">
         {text}
       </div>
     </div>
@@ -802,7 +806,7 @@ function WelcomeStep({
       <AgentBubble
         text="I'll guide you through a short check-in: a brief rest measurement, then a conversation. I just need access to your camera, microphone, and motion sensor first."
       />
-      <ul className="text-sm text-stone-600 space-y-1.5">
+      <ul className="text-sm text-slate-600 space-y-1.5">
         <li>· Camera — observes blink rate + facial expressivity briefly at the start of the chat.</li>
         <li>· Microphone — captures your replies during the conversation.</li>
         <li>· Motion — measures tremor signals while you hold the phone.</li>
@@ -813,7 +817,7 @@ function WelcomeStep({
           type="button"
           disabled={permState === 'requesting'}
           onClick={onRequest}
-          className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-white font-medium disabled:bg-stone-300"
+          className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 font-semibold text-emerald-900 hover:border-emerald-800 disabled:opacity-60"
         >
           {permState === 'requesting' ? 'Requesting access…' : 'Allow access'}
         </button>
@@ -822,7 +826,7 @@ function WelcomeStep({
           type="button"
           disabled={busy}
           onClick={onContinue}
-          className="w-full rounded-lg bg-blue-800 px-4 py-3 text-white font-medium disabled:bg-stone-300"
+          className="w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 font-semibold text-blue-900 hover:border-blue-800 disabled:opacity-60"
         >
           {busy ? 'Starting…' : 'Start check-in'}
         </button>
@@ -857,30 +861,69 @@ function ConvoPanel({
   onCancel: () => void;
 }) {
   const busy = voiceState === 'thinking' || voiceState === 'speaking';
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [turns.length, voiceState]);
+
+  const progress = Math.min(count, target) / target;
+  const stateLabel: Record<VoiceState, string> = {
+    idle: 'Hold to talk',
+    recording: 'Listening…',
+    thinking: 'Thinking…',
+    speaking: 'Speaking…',
+  };
+
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-stone-500">
-        Question {Math.min(count + 1, target)} of {target} · {statusMsg}
-      </p>
-      <div className="space-y-2">
-        {turns.map((t, i) => (
+    <div className="flex flex-col h-[calc(100vh-7rem)]">
+      {/* Progress + status */}
+      <div className="space-y-1.5 pb-3">
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-medium text-slate-700">
+            Question {Math.min(count + 1, target)} of {target}
+          </span>
+          {statusMsg && <span className="text-slate-500">{statusMsg}</span>}
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
           <div
-            key={i}
-            className={`text-sm rounded-xl px-3 py-2 ${
-              t.role === 'assistant'
-                ? 'bg-white border border-stone-200'
-                : 'bg-emerald-600 text-white ml-8'
-            }`}
-          >
-            {t.text}
-          </div>
-        ))}
+            className="h-full bg-blue-800 transition-all duration-500"
+            style={{ width: `${Math.max(progress * 100, 4)}%` }}
+          />
+        </div>
       </div>
-      <div ref={bottomRef} className="flex flex-col items-center gap-2 pt-2">
+
+      {/* Transcript scroll area */}
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2"
+      >
+        {turns.length === 0 ? (
+          <p className="text-center text-xs text-slate-400 pt-6">
+            Conversation will appear here as you speak.
+          </p>
+        ) : (
+          turns.map((t, i) => (
+            <div
+              key={i}
+              className={`flex ${t.role === 'assistant' ? 'justify-start' : 'justify-end'}`}
+            >
+              <div
+                className={`max-w-[85%] text-sm rounded-2xl px-3 py-2 ${
+                  t.role === 'assistant'
+                    ? 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm'
+                    : 'bg-blue-800 text-white rounded-tr-sm'
+                }`}
+              >
+                {t.text}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Sticky mic footer */}
+      <div className="flex flex-col items-center gap-2 pt-4 pb-2 bg-white">
         <button
           disabled={busy}
           onMouseDown={onStart}
@@ -898,10 +941,13 @@ function ConvoPanel({
             voiceState === 'recording'
               ? 'bg-rose-500 scale-110'
               : busy
-                ? 'bg-stone-300 cursor-not-allowed'
-                : 'bg-emerald-600 active:scale-95'
+                ? 'bg-slate-300 cursor-not-allowed'
+                : 'bg-blue-800 active:scale-95'
           }`}
         >
+          {voiceState === 'idle' && (
+            <span className="absolute inset-0 rounded-full border-2 border-blue-300 animate-ping opacity-40" />
+          )}
           {voiceState === 'recording' && (
             <span className="absolute inset-0 rounded-full bg-rose-500 animate-ping opacity-60" />
           )}
@@ -913,8 +959,16 @@ function ConvoPanel({
             <line x1="8" y1="23" x2="16" y2="23" />
           </svg>
         </button>
-        <span className="text-xs text-stone-500">
-          {voiceState === 'idle' ? 'Hold to talk' : voiceState}
+        <span
+          className={`text-xs font-medium ${
+            voiceState === 'recording'
+              ? 'text-rose-600'
+              : voiceState === 'thinking' || voiceState === 'speaking'
+                ? 'text-blue-700'
+                : 'text-slate-600'
+          }`}
+        >
+          {stateLabel[voiceState]}
         </span>
       </div>
     </div>

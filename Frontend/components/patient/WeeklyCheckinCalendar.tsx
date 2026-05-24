@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   addMonths,
   buildMonthCalendar,
@@ -16,14 +16,26 @@ interface WeeklyCheckinCalendarProps {
 }
 
 export function WeeklyCheckinCalendar({ patientId }: WeeklyCheckinCalendarProps) {
-  const [viewDate, setViewDate] = useState(new Date());
+  const [viewDate, setViewDate] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setViewDate(new Date());
+  }, []);
 
   const days = useMemo(
-    () => buildMonthCalendar(patientId, viewDate),
+    () => (viewDate ? buildMonthCalendar(patientId, viewDate) : []),
     [patientId, viewDate]
   );
   const status = useMemo(() => getCurrentWeekStatus(patientId), [patientId]);
   const streak = useMemo(() => getStreakWeeks(patientId), [patientId]);
+
+  if (!viewDate) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+        Loading calendar…
+      </div>
+    );
+  }
 
   const weekRows: (typeof days)[] = [];
   for (let i = 0; i < days.length; i += 7) {
@@ -36,7 +48,7 @@ export function WeeklyCheckinCalendar({ patientId }: WeeklyCheckinCalendarProps)
         <div>
           <h2 className="text-sm font-semibold text-slate-900">Weekly check-in calendar</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            One session per week · best on Mondays for consistent reads
+            Today · {format(new Date(), 'EEE, MMM d, yyyy')}
           </p>
         </div>
         {streak > 0 && (

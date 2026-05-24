@@ -88,7 +88,8 @@ async function runAlgorithm(
   const svc = process.env.MOTION_SVC_URL;
   console.log('[motion/analyze] svc_set=%s mode=%s samples=%d', Boolean(svc), mode, samples.length);
   if (svc) {
-    const target = `${svc.replace(/\/$/, '')}/analyze`;
+    const base = /^https?:\/\//i.test(svc) ? svc : `https://${svc}`;
+    const target = `${base.replace(/\/$/, '')}/analyze`;
     const ctrl = new AbortController();
     const t0 = Date.now();
     const timer = setTimeout(() => {

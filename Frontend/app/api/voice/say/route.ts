@@ -45,7 +45,8 @@ export async function POST(req: Request) {
   const text = (body.text ?? '').trim();
   if (!text) return NextResponse.json({ error: 'text required' }, { status: 400 });
 
-  const target = `${svc.replace(/\/$/, '')}/voice/say`;
+  const base = /^https?:\/\//i.test(svc) ? svc : `https://${svc}`;
+  const target = `${base.replace(/\/$/, '')}/voice/say`;
   console.log('[voice/say] fetch target=%s text_len=%d', target, text.length);
 
   const ctrl = new AbortController();

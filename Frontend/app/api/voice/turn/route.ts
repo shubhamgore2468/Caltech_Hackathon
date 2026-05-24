@@ -73,7 +73,8 @@ export async function POST(req: Request) {
   // Default ON — chunk 2 wiring. Frontend can pass 'false' to skip per-turn biomarkers.
   forward.append('include_biomarkers', includeBiomarkers === 'false' ? 'false' : 'true');
 
-  const target = `${svc.replace(/\/$/, '')}/voice/turn`;
+  const base = /^https?:\/\//i.test(svc) ? svc : `https://${svc}`;
+  const target = `${base.replace(/\/$/, '')}/voice/turn`;
   const audioSize = audio instanceof Blob ? audio.size : 0;
   console.log('[voice/turn] fetch target=%s audio_bytes=%d session=%s', target, audioSize, sessionId);
   const ctrl = new AbortController();

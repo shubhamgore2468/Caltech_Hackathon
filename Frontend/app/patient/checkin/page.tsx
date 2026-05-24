@@ -528,13 +528,13 @@ export default function CheckinPage() {
           </div>
         )}
 
-        {motionResults.length > 0 && (
+        {/* {motionResults.length > 0 && (
           <div className="space-y-2">
             {motionResults.map((r, i) => (
               <MotionResultCard key={i} label={r.label} data={r.data} />
             ))}
           </div>
-        )}
+        )} */}
 
 
         {step === 'intro' && (

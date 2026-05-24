@@ -24,6 +24,8 @@ const LANDMARK_INDICES = {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
+const SHOW_LANDMARK_OVERLAY = false;
+
 const CAPTURE_DURATION_SEC = 20;
 
 interface FrameSample {
@@ -399,9 +401,10 @@ export default function ClinicalFacePipeline() {
           playsInline
           muted
         />
+
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-contain -scale-x-100 pointer-events-none z-10"
+          className={`absolute inset-0 w-full h-full object-contain -scale-x-100 pointer-events-none z-10 ${SHOW_LANDMARK_OVERLAY ? '' : 'hidden'}`}
         />
 
         {/* Countdown badge */}

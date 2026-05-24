@@ -1,4 +1,4 @@
--- Tremelo — checkin persistence (Path A)
+-- Parivo Health — checkin persistence (Path A)
 -- Adds step + turn discriminators, patient_id back-refs, broader category enum,
 -- session_type alongside legacy mode, conversation timestamps.
 -- Safe to re-run (idempotent guards).

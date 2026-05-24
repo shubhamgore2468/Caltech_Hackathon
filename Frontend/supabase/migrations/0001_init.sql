@@ -1,4 +1,4 @@
--- Tremelo initial schema
+-- Parivo Health initial schema
 
 create extension if not exists "pgcrypto";
 

@@ -1,4 +1,4 @@
-# Tremelo — Project Handoff Notes
+# Parivo Health — Project Handoff Notes
 
 > Living doc. Update at every milestone so a fresh chat can resume without context bloat.
 > Master plan: `/Users/shubhamgore/.claude/plans/help-build-a-plan-cozy-muffin.md`

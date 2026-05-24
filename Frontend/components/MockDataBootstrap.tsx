@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { getMockCompletedWeekKeys } from '@/lib/mock/generate';
 
-const STORAGE_KEY = 'tremelo_weekly_checkins';
+const STORAGE_KEY = 'Parivo Health_weekly_checkins';
 const DEMO_PATIENT_ID = process.env.NEXT_PUBLIC_DEMO_PATIENT_ID ?? 'demo-001';
 
 /** Seeds localStorage with completed weekly check-ins when running in mock mode. */

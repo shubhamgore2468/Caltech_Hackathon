@@ -177,7 +177,7 @@ function Navbar() {
     <nav className="fixed inset-x-0 top-0 z-50 border-b border-white/40 bg-white/70 backdrop-blur-xl">
       <div className="mx-auto flex h-20 max-w-5xl items-center justify-between px-6">
         <Link href="/" className="text-xl font-semibold tracking-tight text-zinc-900">
-          Tremelo
+          Parivo Health
         </Link>
 
         <div className="flex items-center gap-7">
@@ -235,7 +235,7 @@ function GetStartedButton() {
     return (
       <LiquidButton
         size="xl"
-        onClick={() => router.push('/app')}
+        onClick={() => router.push('/patient/checkin_v2')}
         aria-label="Get started — enter the app"
       >
         Get started →
@@ -244,7 +244,7 @@ function GetStartedButton() {
   }
 
   return (
-    <SignInButton mode="modal" forceRedirectUrl="/app">
+    <SignInButton mode="modal" forceRedirectUrl="/patient/checkin_v2">
       <LiquidButton size="xl" aria-label="Sign in to get started">
         Get started →
       </LiquidButton>
@@ -371,7 +371,7 @@ const STEPS = [
   {
     n: '01',
     title: 'Just open your browser',
-    body: 'No downloads, no wearables, no appointment needed. Open the app on any laptop with a camera — your care team connects automatically.',
+    body: 'No downloads, no wearables, no appointment needed. Open the app on any phone with a camera — your care team connects automatically.',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.5" stroke="currentColor" className="h-6 w-6">
         <rect x="3" y="3" width="18" height="14" rx="2" /><path d="M7 21h10M12 17v4" strokeLinecap="round" />
@@ -527,7 +527,7 @@ function Footer() {
   return (
     <footer className="border-t border-zinc-200/50 bg-white/40 backdrop-blur-sm">
       <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-3 px-5 py-6 text-[13px] text-zinc-400 sm:flex-row">
-        <span>© 2026 Tremelo</span>
+        <span>© 2026 Parivo Health</span>
         <div className="flex gap-5">
           <a href="#how" className="cursor-pointer transition-colors hover:text-zinc-600">How it works</a>
           <a href="#privacy" className="cursor-pointer transition-colors hover:text-zinc-600">Privacy</a>

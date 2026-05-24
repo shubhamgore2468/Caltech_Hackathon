@@ -117,23 +117,31 @@ DEMO_PATIENT_ID=demo-001
 
 | Status | Item | Notes |
 |--------|------|-------|
-| x | Hour 0–2: scaffold | Next 15, TS, Tailwind v4, shadcn (button/card/badge/progress/alert/tabs), deps installed |
-| x | Supabase migration 0001 written | `supabase/migrations/0001_init.sql` — NOT yet applied to a live Supabase project. User must create project + run migration. Demo patient UUID `00000000-0000-0000-0000-000000000001` |
-| x | `components/sensors/{MotionCapture.tsx,useMotionCapture.ts}` ported | Hook + UI w/ live canvas. iOS permission gate included. `onComplete(samples)` callback fires when capture stops |
-| x | `lib/types.ts` + `lib/supabase/{client,server}.ts` | `DEMO_PATIENT_ID` exported from types |
-| x | `.env.local.example` written | User must fill + copy to `.env.local` |
-| x | Repo pushed to remote (no remote configured yet) | Committed locally, push when ready |
-| ☐ | Hour 8: contract check (Friend 1 + 2 + 3 round trip w/ fake batch) | Tech lead runs |
-| ☐ | Friend 2: `lib/biomarkers/motion.ts` real FFT | tremor + gait |
-| ☐ | Friend 2: `lib/biomarkers/voice.ts` mocked | INTEGRATION POINT for Python sidecar later |
+| ✅ | Hour 0–2: scaffold | Next 15, TS, Tailwind v4, shadcn. Lives in `Frontend/` after restructure |
+| ✅ | Supabase migration 0001 written | `Frontend/supabase/migrations/0001_init.sql` — **NOT yet applied** to a live Supabase project. Demo patient UUID `00000000-0000-0000-0000-000000000001` |
+| ✅ | `components/sensors/{MotionCapture.tsx,useMotionCapture.ts}` | Hook + UI w/ live canvas, iOS permission gate, `onComplete(samples)` callback |
+| ✅ | `lib/types.ts` + `lib/supabase/{client,server}.ts` | `DEMO_PATIENT_ID` exported from types |
+| ✅ | `.env.local.example` + `.env` filled w/ ANTHROPIC_API_KEY | Supabase keys still missing |
+| ✅ | Friend 2: `lib/biomarkers/motion.ts` REAL FFT | Cooley-Tukey + Hann window + band-power + peak-spacing gait variance. `generateMockSamples()` helper too |
+| ✅ | Friend 2: `lib/biomarkers/voice.ts` mocked | Seeded plausible jitter/shimmer/HNR/etc. INTEGRATION POINT for Python sidecar |
+| ✅ | Friend 2: `app/api/sessions/{route.ts,[id]/route.ts}` | POST create + PATCH end + GET single. zod via `z.treeifyError` |
+| ✅ | Friend 2: `app/api/biomarkers/route.ts` | POST batch ≤500, GET by session_id |
+| ✅ | Friend 2: `app/api/motion/analyze/route.ts` | **FastAPI sidecar w/ local TS fallback.** Set `MOTION_SVC_URL` env to forward to Python. Contract documented inline |
+| ✅ | Friend 2: `app/api/conversation/turn/route.ts` | Streams `claude-sonnet-4-5`. System prompt warm assistant w/ cognitive probes |
+| ✅ | Friend 2: `app/patient/motion/page.tsx` | **One-button patient workflow**: idle → recording (countdown + live graph) → analyzing → done. POSTs to `/api/motion/analyze` |
+| ✅ | Friend 2: `app/patient/test/page.tsx` | Walk + tremor tabs, mock-samples toggle for laptop dev, persists to DB |
+| ✅ | Friend 2: `app/patient/checkin/page.tsx` v1 | Claude streaming + Web Speech STT + browser TTS + text fallback. Auto-greet on mount. **No transcript save yet** (waiting on Supabase live) |
+| ✅ | Friend 2: `lib/voice/transcribe.ts` | Web Speech wrapper + isSTTSupported gate |
+| ☐ | Apply Supabase migration on live project | Blocks DB persistence end-to-end |
+| ✅ | Friend 2: `lib/biomarkers/fusion.ts` + `/api/risk-score/compute` | Weighted z-score per CLAUDE.md weights, sigmoid squash to [0,1]. Reads biomarkers + conversations.cognitive_flags, writes `risk_scores` row. INTEGRATION POINT for trained model |
+| ✅ | Friend 2: `/api/patients/[id]/timeline` | Returns `{sessions, risk_scores, biomarkers}` for patient. `?limit=N` (default 180). Doctor dashboard ready to consume |
+| ☐ | Friend 2: checkin v2 — save transcript + voice biomarkers every 5s | Needs Supabase live |
 | ☐ | Friend 3: `lib/biomarkers/camera.ts` + `CameraCapture` component | MediaPipe Face Landmarker |
-| ☐ | Friend 2: `lib/biomarkers/fusion.ts` + `/api/risk-score/compute` | |
-| ☐ | Friend 2: all core `/api/*` routes live (sessions, biomarkers, timeline, conversation/turn) | |
-| ☐ | Friend 2: `/patient/checkin` Claude conversation + `/patient/test` walk/tremor | Web Speech text fallback day-one |
-| ☐ | Friend 1: `/doctor/*` routes + Recharts + `lib/alerts.ts` | |
+| ☐ | Friend 1: `/doctor/*` routes + Recharts + `lib/alerts.ts` | Lives in `User-Interface/` per restructure |
 | ☐ | Friend 1: `scripts/seed-demo-data.ts` (CRITICAL) + wearable mock + CSV export | Run before every demo rehearsal |
 | ☐ | Friend 1: `/patient/page.tsx` home + `/patient/family/page.tsx` | UI shell only — sensor wiring is Friend 2 |
 | ☐ | Friend 3 props lock at hour 4 (CameraCapture API) | Friend 2 can stub child early |
+| ☐ | Hour 8: contract check (Friend 1 + 2 + 3 round trip w/ fake batch) | Tech lead runs |
 | ☐ | Hour 14: full vertical slice green | |
 | ☐ | Hour 18: feature freeze | |
 | ☐ | Hour 20: 3× end-to-end demo run | |
@@ -150,6 +158,11 @@ _(none yet)_
 - 2026-05-23: Post-hackathon voice upgrade path confirmed — Python FastAPI sidecar w/ librosa+parselmouth+sklearn against UCI Max Little dataset. Swap-in only touches `lib/biomarkers/voice.ts` body + new `VOICE_SVC_URL` env. Schema + API contracts + fusion logic stay. ML output written as additional `biomarkers` row(s), e.g. `parkinsons_voice_ml_score`.
 - 2026-05-23: Voice AI chat agent path — start w/ Web Speech STT + Claude text + browser TTS; later swap to Deepgram/AssemblyAI STT + ElevenLabs/Cartesia TTS behind same `/api/conversation/turn`.
 - 2026-05-23: Team re-split from 4 streams → 3 friends (Screens / Brain / Camera) + tech lead. Friend 2 absorbs old Stream A backend + Stream B patient flows minus camera. Friend 1 absorbs old Stream C entirely (charts + wearable + CSV + seed). Friend 3 isolated to camera pipeline only.
+- 2026-05-23: **Project restructured** into 3 top-level dirs: `Backend/` (Python FastAPI sidecar, currently empty), `Frontend/` (Next.js — Friend 2 + sensors + APIs live here), `User-Interface/` (Friend 1's doctor + patient UI shell, separate Next.js app). Each Next.js subproject has its own `.gitignore`, `package.json`, `node_modules`. Root `.gitignore` covers `node_modules/`, `.next/`, `.env*` at any depth.
+- 2026-05-23: `/api/motion/analyze` route designed w/ **dual backend**: if `MOTION_SVC_URL` env set → forwards POST `/analyze` to FastAPI sidecar; otherwise runs local `extractMotionBiomarkers` TS. Response shape unchanged. FastAPI contract documented inline in `Frontend/app/api/motion/analyze/route.ts`.
+- 2026-05-23: FastAPI sidecar contract upgraded to spectral-subtraction tremor algo (scipy STFT, 2s window, 90% overlap, bundled `IMUTable.json` calibration for noise profile + 20%-margin absolute-power gate, 1.96-z 95% CI across windows). Returns `{duration_seconds, windows_analyzed, metrics_pd_ratio:{mean,ci_lower,ci_upper}, metrics_et_ratio:{...}}`. TS route translates → 6 motion `Biomarker[]` rows (`pd_ratio_mean/ci_lower/ci_upper`, `et_ratio_mean/ci_lower/ci_upper`). Fusion REF + PD_METRICS.motion extended w/ `pd_ratio_mean` (ref mean 0.15, std 0.1, dir +) + `et_ratio_mean`. Local TS fallback unchanged (legacy tremor_score etc.).
+- 2026-05-23: `/patient/motion` page redesigned as patient-friendly one-button auto-flow: tap Start → countdown + live x/y/z graph → auto-stop at duration → "Analyzing…" → result card. No manual stop, no JSON download in this view. `window.__imuSamples` + `window.__imuResult` still bound for DevTools debugging.
+- 2026-05-23: TypeScript IDE auto-rewrite broke imports during restructure (added bogus `@/Frontend/` prefix). Fixed via `sed -i '' 's|@/Frontend/|@/|g'` across `app/patient/{test,checkin}/page.tsx` + `components/sensors/MotionCapture.tsx`. Also dedup'd `useMotionCapture` import in `app/patient/motion/page.tsx`.
 
 ## Known gotchas
 - **iOS Safari DeviceMotion**: requires user-gesture permission (`DeviceMotionEvent.requestPermission()`). Must be triggered from a click handler, not on mount. See IMU/index.html for working pattern.
@@ -163,6 +176,26 @@ _(none yet)_
 3. Check Progress log → first unchecked item is next task.
 4. `git log -20` if repo initialized, to see what already shipped.
 5. Update this file's Progress log + Decisions log as work completes.
+
+## Quick commands (Friend 2 / Tech Lead)
+```bash
+cd /Users/shubhamgore/Development/Caltech/project/Frontend
+npm run dev                       # boot Next.js
+npx tsc --noEmit -p .             # typecheck
+# For phone testing (DeviceMotion needs HTTPS):
+cloudflared tunnel --url http://localhost:3000
+```
+
+## What's live RIGHT NOW (resume here)
+- `/patient/motion` — one-button IMU capture → server `/api/motion/analyze` → biomarkers card. Works on phone w/ HTTPS. Falls back to local TS algorithm if `MOTION_SVC_URL` unset.
+- `/patient/checkin` — Claude voice conversation, Web Speech STT + browser TTS, text fallback. Works on laptop Chrome NOW (needs `ANTHROPIC_API_KEY` only, no Supabase).
+- `/patient/test` — older walk+tremor page w/ mock toggle + DB persist button. Needs Supabase live to actually save.
+- `/api/sessions`, `/api/sessions/[id]`, `/api/biomarkers`, `/api/motion/analyze`, `/api/conversation/turn` — all up. DB writes need Supabase live.
+
+## Next 3 tasks (in priority order)
+1. Apply Supabase migration 0001 on a live project + fill `.env` w/ `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Without this, no persistence works.
+2. Build `lib/biomarkers/fusion.ts` + `/api/risk-score/compute` per weights in CLAUDE.md.
+3. Build `/api/patients/[id]/timeline` so Friend 1's doctor dashboard can render.
 
 ---
 

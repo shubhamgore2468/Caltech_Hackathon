@@ -15,13 +15,48 @@ const BodySchema = z.object({
   samples: z.array(SampleSchema).min(16).max(50_000),
 });
 
-// FastAPI sidecar contract:
+// FastAPI sidecar contract (spectral-subtraction tremor algo):
 //   POST {MOTION_SVC_URL}/analyze
-//   body: { mode: 'walk_test' | 'hand_tremor', samples: [{t,x,y,z}, ...] }
-//   200 -> { biomarkers: Biomarker[], extra?: Record<string, unknown> }
-//   Biomarker shape: { category: 'motion', metric_name: string, value: number, unit?: string, raw_blob?: object }
+//   body: { patient_data: [{t,x,y,z},...], calibration_data?: [{t,x,y,z},...] }
+//   200 -> {
+//     duration_seconds: number,
+//     windows_analyzed: number,
+//     metrics_pd_ratio: { mean, ci_lower, ci_upper },   // 3-6Hz / 1-15Hz band power
+//     metrics_et_ratio: { mean, ci_lower, ci_upper }    // 4-12Hz / 1-15Hz band power
+//   }
+//   Sidecar falls back to bundled IMUTable.json calibration when calibration_data omitted.
+//   1.96-z 95% CI across sliding 2s STFT windows w/ 90% overlap.
 //
-// If MOTION_SVC_URL is unset, fall back to local TS implementation.
+// If MOTION_SVC_URL is unset, fall back to local TS implementation (legacy tremor_score etc.).
+
+interface FastApiCI {
+  mean: number;
+  ci_lower: number;
+  ci_upper: number;
+}
+
+interface FastApiResponse {
+  duration_seconds: number;
+  windows_analyzed: number;
+  metrics_pd_ratio: FastApiCI;
+  metrics_et_ratio: FastApiCI;
+}
+
+function fastApiToBiomarkers(r: FastApiResponse): Biomarker[] {
+  const raw = {
+    windows_analyzed: r.windows_analyzed,
+    duration_seconds: r.duration_seconds,
+  };
+  return [
+    { category: 'motion', metric_name: 'pd_ratio_mean', value: r.metrics_pd_ratio.mean, unit: 'ratio', raw_blob: raw },
+    { category: 'motion', metric_name: 'pd_ratio_ci_lower', value: r.metrics_pd_ratio.ci_lower, unit: 'ratio' },
+    { category: 'motion', metric_name: 'pd_ratio_ci_upper', value: r.metrics_pd_ratio.ci_upper, unit: 'ratio' },
+    { category: 'motion', metric_name: 'et_ratio_mean', value: r.metrics_et_ratio.mean, unit: 'ratio', raw_blob: raw },
+    { category: 'motion', metric_name: 'et_ratio_ci_lower', value: r.metrics_et_ratio.ci_lower, unit: 'ratio' },
+    { category: 'motion', metric_name: 'et_ratio_ci_upper', value: r.metrics_et_ratio.ci_upper, unit: 'ratio' },
+  ];
+}
+
 async function runAlgorithm(
   samples: Sample[],
   mode: MotionMode,
@@ -34,18 +69,22 @@ async function runAlgorithm(
       const res = await fetch(`${svc.replace(/\/$/, '')}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, samples }),
+        body: JSON.stringify({ patient_data: samples }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`fastapi ${res.status}: ${text.slice(0, 200)}`);
       }
-      const json = (await res.json()) as { biomarkers?: Biomarker[]; extra?: unknown };
-      if (!Array.isArray(json.biomarkers)) {
-        throw new Error('fastapi response missing biomarkers[]');
+      const json = (await res.json()) as FastApiResponse;
+      if (!json?.metrics_pd_ratio || !json?.metrics_et_ratio) {
+        throw new Error('fastapi response missing metrics_{pd,et}_ratio');
       }
-      return { biomarkers: json.biomarkers, backend: 'fastapi', extra: json.extra };
+      return {
+        biomarkers: fastApiToBiomarkers(json),
+        backend: 'fastapi',
+        extra: { duration_seconds: json.duration_seconds, windows_analyzed: json.windows_analyzed },
+      };
     } finally {
       clearTimeout(timer);
     }

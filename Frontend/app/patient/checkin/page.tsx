@@ -1,78 +1,66 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Button } from '@/Frontend/components/ui/button';
-import { Card, CardContent } from '@/Frontend/components/ui/card';
-import { Badge } from '@/Frontend/components/ui/badge';
-import { isSTTSupported, startSTT, speak, cancelSpeak, type STTHandle } from '@/lib/voice/transcribe';
-import type { ConversationTurn } from '@/lib/types';
+import { startRecording, type RecorderHandle } from '@/lib/voice/recorder';
+import { DEMO_PATIENT_ID, type ConversationTurn } from '@/lib/types';
 
-type UIState = 'idle' | 'listening' | 'thinking' | 'speaking';
+type UIState = 'idle' | 'recording' | 'thinking' | 'speaking';
+
+function stripMarkdown(s: string): string {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/\?{2,}/g, '')
+    .replace(/\s+\?\s+/g, ' ')
+    .trim();
+}
 
 export default function CheckinPage() {
   const [messages, setMessages] = useState<ConversationTurn[]>([]);
   const [state, setState] = useState<UIState>('idle');
-  const [interim, setInterim] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [sttAvailable, setSttAvailable] = useState(false);
-  const [textInput, setTextInput] = useState('');
-  const sttRef = useRef<STTHandle | null>(null);
+  const [sessionId] = useState(() =>
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `sess-${Date.now()}`,
+  );
+
+  const recRef = useRef<RecorderHandle | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setSttAvailable(isSTTSupported());
-  }, []);
-
-  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, interim]);
+  }, [messages, state]);
 
-  async function sendToAssistant(userText: string) {
-    setError(null);
-    const next: ConversationTurn[] = [
-      ...messages,
-      { role: 'user', content: userText, timestamp: Date.now() },
-    ];
-    setMessages(next);
+  async function sendAudio(wav: Blob) {
     setState('thinking');
-
+    setError(null);
     try {
-      const res = await fetch('/api/conversation/turn', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: next.map(({ role, content }) => ({ role, content })),
-        }),
-      });
+      const form = new FormData();
+      form.append('audio', wav, 'turn.wav');
+      form.append('session_id', sessionId);
+      form.append('patient_id', DEMO_PATIENT_ID);
 
-      if (!res.ok || !res.body) {
-        const errBody = await res.text();
-        throw new Error(`turn failed: ${errBody}`);
+      const res = await fetch('/api/voice/turn', { method: 'POST', body: form });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`turn failed: ${text.slice(0, 300)}`);
       }
 
-      // Stream tokens into a growing assistant message
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantText = '';
-      setMessages([
-        ...next,
-        { role: 'assistant', content: '', timestamp: Date.now() },
+      const userText = stripMarkdown(res.headers.get('X-User-Transcript') ?? '');
+      const assistantText = stripMarkdown(res.headers.get('X-Assistant-Transcript') ?? '');
+      const audioBuf = await res.arrayBuffer();
+
+      setMessages((cur) => [
+        ...cur,
+        { role: 'user', content: userText || '(no speech detected)', timestamp: Date.now() },
+        { role: 'assistant', content: assistantText, timestamp: Date.now() },
       ]);
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        assistantText += decoder.decode(value, { stream: true });
-        setMessages((cur) => {
-          const copy = cur.slice();
-          copy[copy.length - 1] = { ...copy[copy.length - 1], content: assistantText };
-          return copy;
-        });
-      }
-
-      // Speak full response
       setState('speaking');
-      await speak(assistantText);
+      await playAudio(audioBuf, res.headers.get('Content-Type') ?? 'audio/wav');
       setState('idle');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -80,126 +68,215 @@ export default function CheckinPage() {
     }
   }
 
-  function startListening() {
-    if (state !== 'idle') return;
-    cancelSpeak();
-    setInterim('');
-    setState('listening');
-    const handle = startSTT({
-      onInterim: (t) => setInterim(t),
-      onFinal: (t) => {
-        setInterim('');
-        sttRef.current?.stop();
-        sttRef.current = null;
-        if (t.trim()) sendToAssistant(t.trim());
-        else setState('idle');
-      },
-      onError: (msg) => {
-        setError(`mic: ${msg}`);
-        setState('idle');
-      },
-      onEnd: () => {
-        if (state === 'listening') setState('idle');
-      },
+  function playAudio(buf: ArrayBuffer, mime: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const blob = new Blob([buf], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const el = audioRef.current ?? new Audio();
+      audioRef.current = el;
+      el.src = url;
+      el.onended = () => {
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      el.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('audio playback failed'));
+      };
+      void el.play().catch(reject);
     });
-    sttRef.current = handle;
-    if (!handle) setState('idle');
   }
 
-  function stopListening() {
-    sttRef.current?.stop();
-    sttRef.current = null;
+  async function startHold() {
+    if (state !== 'idle') return;
+    setError(null);
+    try {
+      const handle = await startRecording();
+      recRef.current = handle;
+      setState('recording');
+    } catch (e) {
+      setError(`mic: ${e instanceof Error ? e.message : String(e)}`);
+      setState('idle');
+    }
+  }
+
+  async function endHold() {
+    if (state !== 'recording' || !recRef.current) return;
+    const handle = recRef.current;
+    recRef.current = null;
+    try {
+      const wav = await handle.stop();
+      await sendAudio(wav);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setState('idle');
+    }
+  }
+
+  function cancelHold() {
+    recRef.current?.cancel();
+    recRef.current = null;
     setState('idle');
   }
 
-  function sendText() {
-    if (!textInput.trim()) return;
-    const v = textInput.trim();
-    setTextInput('');
-    sendToAssistant(v);
+  async function resetSession() {
+    setMessages([]);
+    setError(null);
+    setState('idle');
+    try {
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      await fetch('/api/voice/reset', { method: 'POST', body: form });
+    } catch {
+      // best-effort
+    }
   }
 
-  // Auto-greet on mount
-  useEffect(() => {
-    if (messages.length === 0) {
-      sendToAssistant('Hi.');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const busy = state === 'thinking' || state === 'speaking';
+  const statusLabel = {
+    idle: 'Ready',
+    recording: 'Listening…',
+    thinking: 'Thinking…',
+    speaking: 'Speaking…',
+  }[state];
 
   return (
-    <main className="min-h-screen flex flex-col max-w-md mx-auto p-4 gap-3">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Daily Check-in</h1>
-        <Badge variant={state === 'idle' ? 'secondary' : 'default'}>
-          {state}
-        </Badge>
-      </div>
+    <main className="min-h-screen flex flex-col bg-stone-50 text-stone-900">
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-stone-50/90 backdrop-blur border-b border-stone-200 px-4 py-3 flex items-center justify-between max-w-md mx-auto w-full">
+        <div className="flex items-center gap-2">
+          <div className={`h-2.5 w-2.5 rounded-full ${
+            state === 'recording' ? 'bg-rose-500 animate-pulse' :
+            state === 'thinking' ? 'bg-amber-500 animate-pulse' :
+            state === 'speaking' ? 'bg-emerald-500 animate-pulse' :
+            'bg-stone-400'
+          }`} />
+          <h1 className="text-base font-medium">Daily Check-in</h1>
+        </div>
+        <button
+          onClick={resetSession}
+          className="text-xs text-stone-500 hover:text-stone-800 underline-offset-4 hover:underline"
+        >
+          Reset
+        </button>
+      </header>
 
+      {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto flex flex-col gap-2 py-2"
+        className="flex-1 overflow-y-auto max-w-md mx-auto w-full px-4 py-4 flex flex-col gap-3"
         style={{ minHeight: 0 }}
       >
+        {messages.length === 0 && state === 'idle' && (
+          <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 py-12">
+            <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center">
+              <MicIcon className="h-7 w-7 text-emerald-700" />
+            </div>
+            <h2 className="text-lg font-medium">Let's check in</h2>
+            <p className="text-sm text-stone-500 max-w-xs">
+              Hold the green button below and tell me how you're feeling. Release when you're done.
+            </p>
+          </div>
+        )}
+
         {messages.map((m, i) => (
-          <Card
+          <div
             key={i}
-            className={
-              m.role === 'assistant'
-                ? 'self-start max-w-[85%] bg-zinc-900 border-zinc-800'
-                : 'self-end max-w-[85%] bg-emerald-900/40 border-emerald-800'
-            }
+            className={`flex ${m.role === 'assistant' ? 'justify-start' : 'justify-end'}`}
           >
-            <CardContent className="py-2 px-3 text-sm whitespace-pre-wrap">
-              {m.content || (m.role === 'assistant' && state === 'thinking' ? '…' : '')}
-            </CardContent>
-          </Card>
+            {m.role === 'assistant' && (
+              <div className="h-8 w-8 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center mr-2 mt-0.5 shrink-0 font-medium">
+                AI
+              </div>
+            )}
+            <div
+              className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap shadow-sm ${
+                m.role === 'assistant'
+                  ? 'bg-white border border-stone-200 rounded-tl-sm'
+                  : 'bg-emerald-600 text-white rounded-tr-sm'
+              }`}
+            >
+              {m.content}
+            </div>
+          </div>
         ))}
-        {interim && (
-          <Card className="self-end max-w-[85%] bg-zinc-800/60 border-zinc-700 opacity-70">
-            <CardContent className="py-2 px-3 text-sm italic">{interim}</CardContent>
-          </Card>
+
+        {state === 'thinking' && (
+          <div className="flex justify-start">
+            <div className="h-8 w-8 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center mr-2 mt-0.5 font-medium">
+              AI
+            </div>
+            <div className="bg-white border border-stone-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+              <ThinkingDots />
+            </div>
+          </div>
         )}
       </div>
 
       {error && (
-        <div className="text-xs text-red-400 px-2">{error}</div>
+        <div className="max-w-md mx-auto w-full px-4">
+          <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+            {error}
+          </div>
+        </div>
       )}
 
-      <div className="flex flex-col gap-2">
-        {sttAvailable ? (
-          <Button
-            size="lg"
-            className="w-full py-6 text-lg"
-            onClick={state === 'listening' ? stopListening : startListening}
-            variant={state === 'listening' ? 'destructive' : 'default'}
-            disabled={state === 'thinking' || state === 'speaking'}
+      {/* Mic button */}
+      <div className="sticky bottom-0 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pt-8 pb-6 px-4 max-w-md mx-auto w-full">
+        <div className="flex flex-col items-center gap-2">
+          <button
+            disabled={busy}
+            onMouseDown={startHold}
+            onMouseUp={endHold}
+            onMouseLeave={() => state === 'recording' && cancelHold()}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              startHold();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              endHold();
+            }}
+            className={`relative h-20 w-20 rounded-full flex items-center justify-center shadow-lg transition-all select-none touch-none ${
+              state === 'recording'
+                ? 'bg-rose-500 scale-110'
+                : busy
+                  ? 'bg-stone-300 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95'
+            }`}
           >
-            {state === 'listening' ? 'Stop' : state === 'thinking' ? 'Thinking…' : state === 'speaking' ? 'Speaking…' : 'Hold to talk'}
-          </Button>
-        ) : (
-          <div className="text-xs text-amber-400">Voice not supported here — use text below.</div>
-        )}
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            sendText();
-          }}
-          className="flex gap-2"
-        >
-          <input
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder="Or type a reply…"
-            className="flex-1 rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2 text-sm"
-            disabled={state === 'thinking' || state === 'speaking'}
-          />
-          <Button type="submit" variant="outline" disabled={!textInput.trim() || state === 'thinking' || state === 'speaking'}>
-            Send
-          </Button>
-        </form>
+            {state === 'recording' && (
+              <span className="absolute inset-0 rounded-full bg-rose-500 animate-ping opacity-60" />
+            )}
+            <MicIcon className="h-8 w-8 text-white relative" />
+          </button>
+          <span className="text-xs text-stone-500 mt-1">
+            {state === 'idle' ? 'Hold to talk' : statusLabel}
+          </span>
+        </div>
       </div>
     </main>
+  );
+}
+
+function MicIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+         strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  );
+}
+
+function ThinkingDots() {
+  return (
+    <div className="flex gap-1 items-center h-5">
+      <span className="h-2 w-2 rounded-full bg-stone-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+      <span className="h-2 w-2 rounded-full bg-stone-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+      <span className="h-2 w-2 rounded-full bg-stone-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+    </div>
   );
 }

@@ -1,14 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { MotionCapture } from '@/Frontend/components/sensors/MotionCapture';
+import { MotionCapture } from '@/components/sensors/MotionCapture';
 import { extractMotionBiomarkers, generateMockSamples, type MotionMode } from '@/lib/biomarkers/motion';
 import type { Biomarker, Sample } from '@/lib/types';
 import { DEMO_PATIENT_ID } from '@/lib/types';
-import { Button } from '@/Frontend/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/Frontend/components/ui/card';
-import { Badge } from '@/Frontend/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/Frontend/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 type CaptureSource = 'phone' | 'mock';
 

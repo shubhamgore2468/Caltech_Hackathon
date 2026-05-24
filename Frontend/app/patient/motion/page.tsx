@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useMotionCapture } from '../../../MotionCapture';
-import { useMotionCapture } from '../../../components/sensors/useMotionCapture';
+import { useMotionCapture } from '@/components/sensors/useMotionCapture';
 import { type MotionMode } from '@/lib/biomarkers/motion';
 import type { Biomarker, Sample } from '@/lib/types';
 
@@ -141,6 +140,47 @@ export default function MotionPage() {
     mc.reset();
   }
 
+  async function handleFile(file: File) {
+    setErrorMsg(null);
+    setResult(null);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch (e) {
+      setErrorMsg(`Bad JSON: ${e instanceof Error ? e.message : String(e)}`);
+      setPhase('error');
+      return;
+    }
+    const arr = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray((parsed as { samples?: unknown })?.samples)
+        ? (parsed as { samples: unknown[] }).samples
+        : null;
+    if (!arr) {
+      setErrorMsg('JSON must be array of {t,x,y,z} or {samples:[...]}.');
+      setPhase('error');
+      return;
+    }
+    const samples: Sample[] = [];
+    for (const s of arr) {
+      const o = s as Record<string, unknown>;
+      if (
+        typeof o?.t === 'number' &&
+        typeof o?.x === 'number' &&
+        typeof o?.y === 'number' &&
+        typeof o?.z === 'number'
+      ) {
+        samples.push({ t: o.t, x: o.x, y: o.y, z: o.z });
+      }
+    }
+    if (samples.length < 16) {
+      setErrorMsg(`Need ≥16 valid samples, got ${samples.length}.`);
+      setPhase('error');
+      return;
+    }
+    await analyzeSamples(samples);
+  }
+
   // ---- Live graph (only meaningful while recording, but we keep it always) ----
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ringRef = useRef({
@@ -277,6 +317,26 @@ export default function MotionPage() {
           >
             Start {DURATION[mode]}s test
           </button>
+
+          <div className="text-xs text-center" style={{ color: COLORS.muted }}>
+            — or upload IMU JSON for testing —
+          </div>
+          <label
+            className="w-full rounded-xl py-3 px-3 text-sm font-medium border text-center cursor-pointer"
+            style={{ background: '#21262d', color: COLORS.fg, borderColor: COLORS.border }}
+          >
+            Choose JSON file
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) void handleFile(f);
+              }}
+            />
+          </label>
         </>
       )}
 

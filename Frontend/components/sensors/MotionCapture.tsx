@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useMotionCapture } from './useMotionCapture';
 import type { Sample, SessionMode } from '@/lib/types';
-import { Button } from '@/Frontend/components/ui/button';
+import { Button } from '@/components/ui/button';
 
 const GRAPH_WINDOW_SEC = 5;
 

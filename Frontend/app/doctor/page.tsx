@@ -36,19 +36,14 @@ export default function DoctorHome() {
   return (
     <main className="min-h-screen bg-[#FDFCFB] p-8">
       <BackButton href="/" label="Home" />
-      <div className="mt-6 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Patient Overview</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            All registered patients · most recent check-in first
-          </p>
-        </div>
-        <Link href="/doctor/cohort" className="text-sm text-blue-700 hover:underline">
-          Cohort analytics →
-        </Link>
-      </div>
+      <h1 className="mt-4 text-2xl font-bold text-slate-900">Doctor Dashboard</h1>
+      <p className="mt-1 text-sm text-slate-600">
+        Weekly check-in monitoring · kinematic, vocal, autonomic &amp; clinical context
+      </p>
 
       <div className="mt-8 space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Patients</h2>
+
         {loading && (
           <div className="space-y-3">
             {[0, 1, 2].map((i) => (

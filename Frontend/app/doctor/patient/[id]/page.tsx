@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { BackButton } from '@/components/BackButton';
 import { format } from 'date-fns';
 import {
@@ -53,7 +54,15 @@ interface LatestResponse {
   mock: boolean;
 }
 
+interface TimelineSession {
+  id: string;
+  started_at?: string | null;
+  ended_at?: string | null;
+  mode?: string | null;
+}
+
 interface TimelineResponse {
+  sessions?: TimelineSession[];
   risk_scores: { computed_at?: string; recorded_at?: string; parkinsons_score: number; dementia_score: number }[];
 }
 
@@ -155,8 +164,16 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
   const [progression, setProgression] = useState<ProgressionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [transcriptOpen, setTranscriptOpen] = useState(true);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [perStepOpen, setPerStepOpen] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const summaryCache = useMemo(() => new Map<string, string>(), []);
 
+  // Initial load: timeline + progression + most-recent latest.
   useEffect(() => {
     (async () => {
       try {
@@ -168,6 +185,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
         setLatest(l);
         setTimeline(t);
         setProgression(p);
+        if (l?.session?.id) setSelectedSessionId(l.session.id);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -175,6 +193,69 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
       }
     })();
   }, [id]);
+
+  // Auto-fetch AI summary when session w/ transcript changes.
+  useEffect(() => {
+    const sid = latest?.session?.id;
+    const transcript = latest?.conversation?.transcript;
+    if (!sid || !transcript || transcript.length === 0) {
+      setSummary(null);
+      setSummaryError(null);
+      return;
+    }
+    const cached = summaryCache.get(sid);
+    if (cached) {
+      setSummary(cached);
+      setSummaryError(null);
+      return;
+    }
+    let cancelled = false;
+    setSummaryLoading(true);
+    setSummary(null);
+    setSummaryError(null);
+    fetch('/api/conversation/summary', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        transcript,
+        cognitive_flags: latest?.conversation?.cognitive_flags ?? null,
+      }),
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`summary ${r.status}`);
+        return r.json();
+      })
+      .then((j: { summary: string }) => {
+        if (cancelled) return;
+        summaryCache.set(sid, j.summary);
+        setSummary(j.summary);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setSummaryError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setSummaryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [latest, summaryCache]);
+
+  async function pickSession(sessionId: string) {
+    if (sessionId === selectedSessionId) return;
+    setSelectedSessionId(sessionId);
+    setSessionLoading(true);
+    try {
+      const r = await fetch(`/api/patients/${id}/latest?session_id=${sessionId}`, { cache: 'no-store' });
+      const l = await r.json();
+      setLatest(l);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSessionLoading(false);
+    }
+  }
 
   const chartData = useMemo(() => {
     if (!timeline?.risk_scores) return [];
@@ -243,6 +324,16 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
           )}
         </header>
 
+        {/* ── Check-in picker ──────────────────────────────────────────── */}
+        {timeline?.sessions && timeline.sessions.length > 0 && (
+          <SessionPicker
+            sessions={timeline.sessions}
+            selectedId={selectedSessionId}
+            onSelect={pickSession}
+            loading={sessionLoading}
+          />
+        )}
+
         {/* ── Progression analysis (Theil-Sen + Stouffer's Z) ──────────── */}
         {progression && <ProgressionSection prog={progression} />}
 
@@ -286,7 +377,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
           })}
         </section>
 
-        {/* ── Transcript + cognitive flags ─────────────────────────────── */}
+        {/* ── Check-in summary (AI) ────────────────────────────────────── */}
         {latest.conversation && (
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <button
@@ -295,9 +386,9 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
               className="flex w-full items-center justify-between text-left"
             >
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Check-in transcript</h2>
+                <h2 className="text-sm font-semibold text-slate-900">Check-in summary</h2>
                 <p className="text-xs text-slate-500">
-                  {latest.conversation.transcript.length} turns ·{' '}
+                  AI-generated · {latest.conversation.transcript.length} turns ·{' '}
                   {Object.keys(latest.conversation.cognitive_flags ?? {}).length} cognitive flags
                 </p>
               </div>
@@ -305,30 +396,20 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
             </button>
 
             {transcriptOpen && (
-              <div className="mt-4 space-y-3">
-                <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
-                  {latest.conversation.transcript.map((t, i) => (
-                    <div
-                      key={i}
-                      className={`rounded-xl px-3 py-2 text-sm ${
-                        t.role === 'assistant'
-                          ? 'bg-slate-50 border border-slate-200 text-slate-800'
-                          : 'bg-blue-50 border border-blue-200 text-blue-900 ml-6'
-                      }`}
-                    >
-                      <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">{t.role}</p>
-                      {t.content}
-                    </div>
-                  ))}
-                </div>
-
-                {Object.keys(latest.conversation.cognitive_flags ?? {}).length > 0 && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-amber-700 mb-1">Cognitive flags</p>
-                    <pre className="text-xs font-mono text-amber-900 whitespace-pre-wrap">
-                      {JSON.stringify(latest.conversation.cognitive_flags, null, 2)}
-                    </pre>
+              <div className="mt-4">
+                {summaryLoading && (
+                  <p className="text-xs text-slate-500">Generating summary…</p>
+                )}
+                {summaryError && !summaryLoading && (
+                  <p className="text-xs text-rose-600">Summary failed: {summaryError}</p>
+                )}
+                {summary && !summaryLoading && (
+                  <div className="text-sm text-slate-800 leading-relaxed space-y-3 [&_strong]:font-semibold [&_strong]:text-slate-900 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_p]:my-0">
+                    <ReactMarkdown>{summary}</ReactMarkdown>
                   </div>
+                )}
+                {!summary && !summaryLoading && !summaryError && (
+                  <p className="text-xs text-slate-400">No summary available.</p>
                 )}
               </div>
             )}
@@ -337,19 +418,96 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
 
         {/* ── Per-step breakdown ───────────────────────────────────────── */}
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-900">Per-step capture breakdown</h2>
-          <p className="text-xs text-slate-500 mb-4">Raw biomarker rows for the latest check-in</p>
-          <div className="space-y-4">
-            {groupByStep(latest.biomarkers).map(([step, rows]) => (
-              <StepGroup key={step} step={step} rows={rows} />
-            ))}
-            {latest.biomarkers.length === 0 && (
-              <p className="text-xs text-slate-400">No biomarker rows for this session yet.</p>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => setPerStepOpen((v) => !v)}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Per-step capture breakdown</h2>
+              <p className="text-xs text-slate-500">
+                Raw biomarker rows · {latest.biomarkers.length} rows
+              </p>
+            </div>
+            <span className="text-xs text-slate-500">{perStepOpen ? 'Hide' : 'Show'}</span>
+          </button>
+          {perStepOpen && (
+            <div className="mt-4 space-y-4">
+              {groupByStep(latest.biomarkers).map(([step, rows]) => (
+                <StepGroup key={step} step={step} rows={rows} />
+              ))}
+              {latest.biomarkers.length === 0 && (
+                <p className="text-xs text-slate-400">No biomarker rows for this session yet.</p>
+              )}
+            </div>
+          )}
         </section>
       </div>
     </main>
+  );
+}
+
+function SessionPicker({
+  sessions,
+  selectedId,
+  onSelect,
+  loading,
+}: {
+  sessions: TimelineSession[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  loading: boolean;
+}) {
+  // Newest-first chips. Use started_at for ordering + label.
+  const ordered = useMemo(
+    () =>
+      [...sessions]
+        .filter((s) => s.started_at)
+        .sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? '')),
+    [sessions],
+  );
+
+  if (ordered.length === 0) return null;
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-baseline justify-between mb-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">Check-ins</h2>
+          <p className="text-xs text-slate-500">Pick a date to view its capture · {ordered.length} total</p>
+        </div>
+        {loading && <span className="text-xs text-slate-400">Loading…</span>}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {ordered.map((s) => {
+          const active = s.id === selectedId;
+          const d = new Date(s.started_at!);
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onSelect(s.id)}
+              className={`rounded-lg border px-3 py-1.5 text-xs transition ${
+                active
+                  ? 'border-slate-900 bg-slate-900 text-white'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+              title={s.id}
+            >
+              <span className="font-medium">{format(d, 'MMM d')}</span>
+              <span className={`ml-1 ${active ? 'text-slate-300' : 'text-slate-400'}`}>
+                {format(d, 'h:mm a')}
+              </span>
+              {s.mode && (
+                <span className={`ml-1 font-mono text-[10px] ${active ? 'text-slate-300' : 'text-slate-400'}`}>
+                  · {s.mode}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

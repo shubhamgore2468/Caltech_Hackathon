@@ -155,10 +155,7 @@ function NavAuthButton() {
 
   if (user) {
     return (
-      <UserButton
-        appearance={{ elements: { avatarBox: 'h-9 w-9' } }}
-        afterSignOutUrl="/"
-      />
+      <UserButton appearance={{ elements: { avatarBox: 'h-9 w-9' } }} />
     );
   }
 

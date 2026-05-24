@@ -47,10 +47,12 @@ function mockResponse(patientId: string) {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: patientId } = await params;
+  const requestedSessionId = req.nextUrl.searchParams.get('session_id');
+
   if (!UUID_RE.test(patientId)) {
     // String IDs (e.g. 'demo-001') always go through mock.
     return NextResponse.json(mockResponse(patientId));
@@ -65,19 +67,71 @@ export async function GET(
 
     const { data: patient } = await supa.from('patients').select('*').eq('id', patientId).maybeSingle();
 
-    const { data: sessions } = await supa
-      .from('sessions')
-      .select('id, patient_id, session_type, mode, started_at, ended_at, recorded_at, duration_seconds, notes')
-      .eq('patient_id', patientId)
-      .order('started_at', { ascending: false })
-      .limit(2);
+    type SessionRow = {
+      id: string;
+      patient_id: string;
+      session_type: string | null;
+      mode: string | null;
+      started_at: string | null;
+      ended_at: string | null;
+      recorded_at: string | null;
+      duration_seconds: number | null;
+      notes: string | null;
+    };
+    let latest: SessionRow;
+    let prior: SessionRow | null = null;
 
-    if (!sessions?.length) {
-      return NextResponse.json(mockResponse(patientId));
+    if (requestedSessionId && UUID_RE.test(requestedSessionId)) {
+      const { data: target } = await supa
+        .from('sessions')
+        .select('id, patient_id, session_type, mode, started_at, ended_at, recorded_at, duration_seconds, notes')
+        .eq('patient_id', patientId)
+        .eq('id', requestedSessionId)
+        .maybeSingle();
+      if (!target) {
+        return NextResponse.json({ error: 'session not found for patient' }, { status: 404 });
+      }
+      latest = target;
+      // prior = most recent session strictly before this one
+      const { data: priorRow } = await supa
+        .from('sessions')
+        .select('id, patient_id, session_type, mode, started_at, ended_at, recorded_at, duration_seconds, notes')
+        .eq('patient_id', patientId)
+        .lt('started_at', target.started_at ?? new Date().toISOString())
+        .not('ended_at', 'is', null)
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      prior = priorRow ?? null;
+    } else {
+      // Prefer completed sessions (ended_at IS NOT NULL). /patient/checkin_v2 creates a
+      // session row on page load; if the user bails before finishing, we get an empty stub
+      // that has 0 biomarkers and would otherwise show as the "latest" on the doctor page.
+      const { data: completedRows } = await supa
+        .from('sessions')
+        .select('id, patient_id, session_type, mode, started_at, ended_at, recorded_at, duration_seconds, notes')
+        .eq('patient_id', patientId)
+        .not('ended_at', 'is', null)
+        .order('started_at', { ascending: false })
+        .limit(2);
+
+      let sessions = completedRows ?? [];
+      if (sessions.length === 0) {
+        const { data: any_ } = await supa
+          .from('sessions')
+          .select('id, patient_id, session_type, mode, started_at, ended_at, recorded_at, duration_seconds, notes')
+          .eq('patient_id', patientId)
+          .order('started_at', { ascending: false })
+          .limit(2);
+        sessions = any_ ?? [];
+      }
+
+      if (!sessions.length) {
+        return NextResponse.json(mockResponse(patientId));
+      }
+      latest = sessions[0];
+      prior = sessions[1] ?? null;
     }
-
-    const latest = sessions[0];
-    const prior = sessions[1] ?? null;
 
     const [{ data: biomarkers }, { data: priorBiomarkers }, { data: conversation }, { data: riskScore }] =
       await Promise.all([

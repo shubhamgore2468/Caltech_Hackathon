@@ -123,6 +123,11 @@ export default function CheckinV2Page() {
   );
   const voiceBiomarkersRef = useRef<VoiceBiomarkerPayload[]>([]);
   const turnsSnapshotRef = useRef<Turn[]>([]);
+  // Dementia signals harvested per turn (mirror /patient/checkin).
+  const cognitiveFlagStringsRef = useRef<string[]>([]);
+  const turnLatenciesMsRef = useRef<number[]>([]);
+  const turnWordCountsRef = useRef<number[]>([]);
+  const turnStartedAtRef = useRef<number | null>(null);
 
   // Cached media stream from upfront permission grab — reused for cam (video) + recorder (mic).
   const grantedStreamRef = useRef<MediaStream | null>(null);
@@ -309,6 +314,10 @@ export default function CheckinV2Page() {
     userTurnCountRef.current = 0;
     turnsSnapshotRef.current = [];
     voiceBiomarkersRef.current = [];
+    cognitiveFlagStringsRef.current = [];
+    turnLatenciesMsRef.current = [];
+    turnWordCountsRef.current = [];
+    turnStartedAtRef.current = null;
     framesRef.current = [];
     videoDoneRef.current = false;
     videoStartRef.current = null;
@@ -550,7 +559,12 @@ export default function CheckinV2Page() {
       form.append('session_id', voiceSessionIdRef.current);
       form.append('patient_id', patientIdRef.current);
 
+      turnStartedAtRef.current = Date.now();
       const res = await fetch('/api/voice/turn', { method: 'POST', body: form });
+      if (turnStartedAtRef.current != null) {
+        turnLatenciesMsRef.current.push(Date.now() - turnStartedAtRef.current);
+        turnStartedAtRef.current = null;
+      }
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`turn failed: ${text.slice(0, 200)}`);
@@ -558,6 +572,28 @@ export default function CheckinV2Page() {
       const userText = stripMarkdown(res.headers.get('X-User-Transcript') ?? '');
       const assistantText = stripMarkdown(res.headers.get('X-Assistant-Transcript') ?? '');
       const audioBuf = await res.arrayBuffer();
+
+      // Cognitive flag labels from Claude (e.g. "word_finding", "repetition").
+      const cogHeader = res.headers.get('X-Cognitive-Flags');
+      if (cogHeader) {
+        try {
+          const parsed = JSON.parse(cogHeader);
+          if (Array.isArray(parsed)) {
+            for (const f of parsed) if (typeof f === 'string') cognitiveFlagStringsRef.current.push(f);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      // Unique content-word count → fluency proxy.
+      if (userText) {
+        const words = userText
+          .toLowerCase()
+          .replace(/[^a-z\s']/g, ' ')
+          .split(/\s+/)
+          .filter((w) => w.length > 2);
+        turnWordCountsRef.current.push(new Set(words).size);
+      }
 
       const biomarkerHeader = res.headers.get('X-Voice-Biomarkers');
       if (biomarkerHeader) {
@@ -659,6 +695,27 @@ export default function CheckinV2Page() {
           },
           {},
         );
+        // Numeric CognitiveFlags so fusion's dementia conversation slice (weight 0.4) gets signal.
+        const flagStrings = cognitiveFlagStringsRef.current;
+        const recallHits = flagStrings.filter((f) =>
+          /word[_-]?find|recall|repetit|confus/i.test(f),
+        ).length;
+        if (flagStrings.length > 0) {
+          aggregateFlags.word_recall_errors = recallHits;
+          aggregateFlags.flag_labels = flagStrings;
+        }
+        const lats = turnLatenciesMsRef.current;
+        if (lats.length > 0) {
+          aggregateFlags.response_latency_ms = Math.round(
+            lats.reduce((a, b) => a + b, 0) / lats.length,
+          );
+        }
+        const counts = turnWordCountsRef.current;
+        if (counts.length > 0) {
+          aggregateFlags.fluency_count = Math.round(
+            counts.reduce((a, b) => a + b, 0) / counts.length,
+          );
+        }
         await fetch('/api/conversations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

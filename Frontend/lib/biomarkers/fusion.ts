@@ -13,13 +13,18 @@ interface Ref {
 
 // metric_name → reference. Disease-specific direction handled below where needed.
 const REF: Record<string, Ref> = {
-  // voice
+  // voice — legacy mock names (kept for fallback)
   jitter_percent: { mean: 0.6, std: 0.4, dir: 1 },
   shimmer_percent: { mean: 4.0, std: 2.0, dir: 1 },
   hnr_db: { mean: 20, std: 4, dir: -1 },
   pitch_std_hz: { mean: 30, std: 12, dir: -1 }, // monotone speech = lower std
   speech_rate_sps: { mean: 4.0, std: 0.8, dir: -1 },
   pause_ratio: { mean: 0.15, std: 0.06, dir: 1 },
+  // voice — real sidecar/Praat names actually persisted by /api/voice/turn
+  jitter_local_pct: { mean: 0.6, std: 0.4, dir: 1 },
+  shimmer_local_pct: { mean: 4.0, std: 2.0, dir: 1 },
+  mean_pitch_hz: { mean: 165, std: 35, dir: -1 }, // lower mean pitch + reduced range = monotone
+  pd_probability: { mean: 0.3, std: 0.2, dir: 1 }, // sidecar classifier output
   // motion
   tremor_score: { mean: 0.05, std: 0.05, dir: 1 },
   hand_tremor_hz: { mean: 0, std: 1, dir: 1 }, // 0 at rest; nonzero = tremor
@@ -31,32 +36,52 @@ const REF: Record<string, Ref> = {
   facial_tremor: { mean: 0.02, std: 0.02, dir: 1 },
   blink_rate_per_min: { mean: 17, std: 5, dir: -1 }, // lower in PD
   hypomimia_proxy: { mean: 0.5, std: 0.2, dir: -1 }, // lower expressivity = worse
+  // camera — real sidecar (MediaPipe face landmarker) names
+  expressivity_cv_pct: { mean: 12, std: 5, dir: -1 }, // lower CV = hypomimia
+  total_blinks: { mean: 17, std: 7, dir: -1 }, // raw count over ~60s window
   // wearable
   hrv_ms: { mean: 45, std: 15, dir: -1 },
   sleep_quality: { mean: 0.75, std: 0.15, dir: -1 },
   steps_per_day: { mean: 6500, std: 2500, dir: -1 },
   // conversation (from CognitiveFlags)
   word_recall_errors: { mean: 0.5, std: 0.7, dir: 1 },
-  response_latency_ms: { mean: 1500, std: 600, dir: 1 },
-  fluency_count: { mean: 16, std: 5, dir: -1 },
+  // Measured client-side as user-finish → assistant-response, includes Deepgram STT +
+  // Claude + Deepgram TTS roundtrip (~5-10s baseline). Real cognitive slowing adds on top.
+  response_latency_ms: { mean: 7000, std: 2500, dir: 1 },
+  // Unique content words per user turn in unstructured speech. Lower = worse.
+  // (Original mean=16 was for animal-fluency probe; we use spontaneous speech.)
+  fluency_count: { mean: 10, std: 4, dir: -1 },
 };
 
 const CATEGORY_WEIGHTS = {
   parkinsons: { voice: 0.4, motion: 0.3, camera: 0.2, wearable: 0.1, conversation: 0.0 },
-  dementia: { conversation: 0.4, voice: 0.3, wearable: 0.2, motion: 0.1, camera: 0.0 },
+  // Dementia: cognitive flags dominate. Camera (hypomimia/blink) added as distinct signal
+  // so dem curve doesn't mirror PD when voice is the only present input.
+  dementia: { conversation: 0.4, voice: 0.2, camera: 0.2, wearable: 0.15, motion: 0.05 },
 } as const;
 
 // Which metrics contribute to which disease (subset of REF keys per category).
 const PD_METRICS = {
-  voice: ['jitter_percent', 'shimmer_percent', 'hnr_db', 'pitch_std_hz'],
+  voice: [
+    'jitter_percent', 'shimmer_percent', 'pitch_std_hz', // legacy mock names
+    'jitter_local_pct', 'shimmer_local_pct', 'hnr_db', 'pd_probability', // real sidecar names
+  ],
   motion: ['tremor_score', 'hand_tremor_hz', 'pd_ratio_mean'],
-  camera: ['facial_tremor', 'blink_rate_per_min', 'hypomimia_proxy'],
+  camera: ['facial_tremor', 'blink_rate_per_min', 'hypomimia_proxy', 'expressivity_cv_pct'],
   wearable: ['hrv_ms', 'sleep_quality'],
 } as const;
 
 const DEM_METRICS = {
   conversation: ['word_recall_errors', 'response_latency_ms', 'fluency_count'],
-  voice: ['speech_rate_sps', 'pause_ratio'],
+  // Voice quality degradation correlates w/ cognitive decline. Use whatever voice metrics
+  // are present — legacy mock OR real Praat output. categoryZ averages only present ones.
+  voice: [
+    'speech_rate_sps', 'pause_ratio', // legacy mock
+    'mean_pitch_hz', // monotone speech — cognitive-load proxy, distinct from PD jitter
+  ],
+  // Hypomimia + reduced blink also implicated in DLB / late dementia. Distinct from PD
+  // signal because we weight expressivity here, not facial tremor.
+  camera: ['expressivity_cv_pct', 'blink_rate_per_min', 'hypomimia_proxy'],
   wearable: ['sleep_quality', 'hrv_ms'],
   motion: ['gait_variance'],
 } as const;

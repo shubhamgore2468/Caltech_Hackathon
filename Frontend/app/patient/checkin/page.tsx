@@ -126,6 +126,11 @@ export default function CheckinPage() {
   const [motionResults, setMotionResults] = useState<Array<{ label: string; data: MotionAnalyzeResponse }>>([]);
   const voiceBiomarkersRef = useRef<VoiceBiomarkerPayload[]>([]);
   const turnsSnapshotRef = useRef<Turn[]>([]);
+  // Per-turn dementia signals harvested from voice flow.
+  const cognitiveFlagStringsRef = useRef<string[]>([]); // ["word_finding", "repetition", ...]
+  const turnLatenciesMsRef = useRef<number[]>([]); // user-finished → assistant-response
+  const turnWordCountsRef = useRef<number[]>([]); // unique-word counts per user turn
+  const turnStartedAtRef = useRef<number | null>(null); // when user stopped speaking
 
   // ── patient ID — resolved from Clerk identity on mount ─────────────────
   const patientIdRef = useRef<string>(
@@ -321,7 +326,12 @@ export default function CheckinPage() {
       form.append('session_id', voiceSessionIdRef.current);
       form.append('patient_id', patientIdRef.current);
 
+      turnStartedAtRef.current = Date.now();
       const res = await fetch('/api/voice/turn', { method: 'POST', body: form });
+      if (turnStartedAtRef.current != null) {
+        turnLatenciesMsRef.current.push(Date.now() - turnStartedAtRef.current);
+        turnStartedAtRef.current = null;
+      }
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`turn failed: ${text.slice(0, 200)}`);
@@ -343,6 +353,28 @@ export default function CheckinPage() {
         } catch (err) {
           console.warn('[voice/biomarkers] parse/persist failed', err);
         }
+      }
+
+      // Cognitive flags — backend Claude returns ["word_finding", "repetition", ...] strings.
+      const cogHeader = res.headers.get('X-Cognitive-Flags');
+      if (cogHeader) {
+        try {
+          const parsed = JSON.parse(cogHeader);
+          if (Array.isArray(parsed)) {
+            for (const f of parsed) if (typeof f === 'string') cognitiveFlagStringsRef.current.push(f);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      // Word count for fluency proxy (unique content words in user turn).
+      if (userText) {
+        const words = userText
+          .toLowerCase()
+          .replace(/[^a-z\s']/g, ' ')
+          .split(/\s+/)
+          .filter((w) => w.length > 2);
+        turnWordCountsRef.current.push(new Set(words).size);
       }
 
       const newPair: Turn[] = [
@@ -397,6 +429,29 @@ export default function CheckinPage() {
           if (b.classifier_available != null) acc[`turn_${i + 1}_classifier`] = b.classifier_available;
           return acc;
         }, {});
+        // Derive numeric CognitiveFlags so fusion's dementia conversation slice (weight 0.4)
+        // gets real signal instead of an empty {}.
+        const flagStrings = cognitiveFlagStringsRef.current;
+        const recallHits = flagStrings.filter((f) =>
+          /word[_-]?find|recall|repetit|confus/i.test(f),
+        ).length;
+        if (flagStrings.length > 0) {
+          aggregateFlags.word_recall_errors = recallHits;
+          aggregateFlags.flag_labels = flagStrings;
+        }
+        const lats = turnLatenciesMsRef.current;
+        if (lats.length > 0) {
+          aggregateFlags.response_latency_ms = Math.round(
+            lats.reduce((a, b) => a + b, 0) / lats.length,
+          );
+        }
+        const counts = turnWordCountsRef.current;
+        if (counts.length > 0) {
+          // Average unique content words per user turn. Proxy for verbal fluency.
+          aggregateFlags.fluency_count = Math.round(
+            counts.reduce((a, b) => a + b, 0) / counts.length,
+          );
+        }
         try {
           const res = await fetch('/api/conversations', {
             method: 'POST',

@@ -127,5 +127,36 @@
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
   }
+}
+
+@keyframes liquid-glow-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(168, 213, 186, 0.38),
+      0 0 22px 6px rgba(168, 213, 186, 0.40),
+      0 0 48px 14px rgba(168, 213, 186, 0.22);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(168, 213, 186, 0.55),
+      0 0 36px 10px rgba(168, 213, 186, 0.60),
+      0 0 72px 22px rgba(168, 213, 186, 0.32);
+  }
+}
+
+@keyframes liquid-glow-drift {
+  0%   { transform: translate(-6%, -4%) scale(1.05); }
+  33%  { transform: translate( 5%, -2%) scale(1.10); }
+  66%  { transform: translate(-2%,  6%) scale(1.07); }
+  100% { transform: translate(-6%, -4%) scale(1.05); }
+}
+
+@keyframes liquid-sheen-sweep {
+  0%   { transform: translateX(-120%) rotate(8deg); opacity: 0; }
+  15%  { opacity: 0.55; }
+  60%  { opacity: 0.55; }
+  100% { transform: translateX(220%) rotate(8deg); opacity: 0; }
 }

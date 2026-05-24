@@ -58,8 +58,8 @@ const liquidbuttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-transparent hover:scale-[1.02] duration-300 transition text-zinc-900',
-        dark: 'bg-transparent hover:scale-[1.02] duration-300 transition text-white',
+        default: 'bg-transparent hover:scale-[1.03] duration-300 transition font-semibold text-zinc-900',
+        dark: 'bg-transparent hover:scale-[1.03] duration-300 transition font-semibold text-white',
       },
       size: {
         default: 'h-11 px-6 py-2',
@@ -103,9 +103,42 @@ function LiquidButton({
     <>
       <Comp
         data-slot="button"
-        className={cn('relative', liquidbuttonVariants({ variant, size, className }))}
+        className={cn('relative isolate', liquidbuttonVariants({ variant, size, className }))}
         {...props}
       >
+        {/* breathing green halo — sits just outside the button rim */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -inset-1 -z-20 rounded-full"
+          style={{ animation: 'liquid-glow-breathe 4.2s ease-in-out infinite' }}
+        />
+
+        {/* drifting soft green wash — gives the button a living, watery motion */}
+        <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-full">
+          <div
+            aria-hidden
+            className="absolute inset-[-30%]"
+            style={{
+              background:
+                'radial-gradient(circle at 30% 30%, rgba(168,213,186,0.55) 0%, rgba(168,213,186,0.18) 38%, transparent 65%)',
+              animation: 'liquid-glow-drift 7s ease-in-out infinite',
+              filter: 'blur(4px)',
+            }}
+          />
+          {/* slow diagonal sheen — subtle, like light catching on water */}
+          <div
+            aria-hidden
+            className="absolute top-0 h-full w-1/3"
+            style={{
+              background:
+                'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.55) 50%, transparent 100%)',
+              animation: 'liquid-sheen-sweep 5.5s ease-in-out infinite',
+              animationDelay: '1.2s',
+              filter: 'blur(6px)',
+            }}
+          />
+        </div>
+
         {/* liquid glass ring */}
         <div className="absolute inset-0 z-0 rounded-full shadow-[0_0_6px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3px_rgba(0,0,0,0.9),inset_-3px_-3px_0.5px_-3px_rgba(0,0,0,0.85),inset_1px_1px_1px_-0.5px_rgba(0,0,0,0.6),inset_-1px_-1px_1px_-0.5px_rgba(0,0,0,0.6),inset_0_0_6px_6px_rgba(0,0,0,0.12),inset_0_0_2px_2px_rgba(0,0,0,0.06),0_0_12px_rgba(255,255,255,0.15)] transition-all" />
         {/* backdrop distortion */}

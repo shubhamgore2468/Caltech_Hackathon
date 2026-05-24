@@ -183,13 +183,12 @@ function Navbar() {
           Tremelo
         </Link>
 
-        {/* desktop links */}
-        <div className="hidden items-center gap-8 text-[15px] text-zinc-500 md:flex">
-          <a href="#how" className="transition-colors hover:text-zinc-900">How it works</a>
-          <a href="#privacy" className="transition-colors hover:text-zinc-900">Privacy</a>
-        </div>
-
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-7">
+          {/* desktop links — scroll to feature sections */}
+          <div className="hidden items-center gap-7 text-[15px] text-zinc-500 md:flex">
+            <a href="#features" className="transition-colors hover:text-zinc-900">Features</a>
+            <a href="#how" className="transition-colors hover:text-zinc-900">How it works</a>
+          </div>
           <NavAuthButton />
           {/* hamburger */}
           <button
@@ -215,8 +214,8 @@ function Navbar() {
             className="overflow-hidden border-t border-white/30 bg-white/90 backdrop-blur-xl md:hidden"
           >
             <div className="flex flex-col gap-1 px-5 py-4 text-sm text-zinc-700">
+              <a href="#features" onClick={() => setOpen(false)} className="cursor-pointer rounded-lg px-3 py-3 text-base hover:bg-zinc-100">Features</a>
               <a href="#how" onClick={() => setOpen(false)} className="cursor-pointer rounded-lg px-3 py-3 text-base hover:bg-zinc-100">How it works</a>
-              <a href="#privacy" onClick={() => setOpen(false)} className="cursor-pointer rounded-lg px-3 py-3 text-base hover:bg-zinc-100">Privacy</a>
             </div>
           </motion.div>
         )}
@@ -342,7 +341,7 @@ function StatsStrip() {
   ];
 
   return (
-    <section className="px-5 pb-24">
+    <section id="features" className="scroll-mt-24 px-5 pb-24">
       <div className="mx-auto max-w-5xl">
         <FadeUp className="mb-4 text-center">
           <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-400">By the numbers</span>

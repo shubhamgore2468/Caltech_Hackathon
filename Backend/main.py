@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from dotenv import load_dotenv
 
@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from analysis import get_session_confidence_intervals
 from voice import VoiceConfigError, reset_session, voice_turn
+from voice_biomarkers import extract_voice_biomarkers
 
 app = FastAPI(title="IMU Tremor + Voice API")
 
@@ -24,6 +25,7 @@ app.add_middleware(
         "X-User-Transcript",
         "X-Assistant-Transcript",
         "X-Cognitive-Flags",
+        "X-Voice-Biomarkers",
     ],
 )
 
@@ -60,6 +62,7 @@ async def voice_turn_endpoint(
     audio: UploadFile = File(...),
     session_id: str = Form(...),
     patient_id: str = Form(...),
+    include_biomarkers: bool = Form(False),
 ):
     wav_bytes = await audio.read()
     if not wav_bytes:
@@ -72,17 +75,80 @@ async def voice_turn_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Voice turn failed: {e}")
 
-    headers = {
-        "X-User-Transcript": _sanitize_header(result["user_transcript"]),
+    headers: dict[str, str] = {
+        "X-User-Transcript":    _sanitize_header(result["user_transcript"]),
         "X-Assistant-Transcript": _sanitize_header(result["assistant_transcript"]),
-        "X-Cognitive-Flags": json.dumps(result["cognitive_flags"]),
-        "X-Patient-Id": patient_id,
+        "X-Cognitive-Flags":    json.dumps(result["cognitive_flags"]),
+        "X-Patient-Id":         patient_id,
     }
+
+    if include_biomarkers:
+        try:
+            biomarkers = await extract_voice_biomarkers(wav_bytes)
+        except Exception:
+            biomarkers = {}
+        headers["X-Voice-Biomarkers"] = _sanitize_header(json.dumps(biomarkers))
+
     return Response(
         content=result["audio_wav"],
         media_type="audio/wav",
         headers=headers,
     )
+
+
+_MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@app.post("/voice/biomarkers")
+async def voice_biomarkers_endpoint(
+    audio: UploadFile = File(...),
+    patient_id: str = Form(...),
+):
+    """
+    Voice biomarker extraction endpoint for Parkinson's vocal risk assessment.
+
+    Request  — multipart/form-data:
+        audio      (file)   WAV audio, 16 kHz mono recommended, 3–5 s sustained vowel
+        patient_id (string) Patient identifier
+
+    Response — JSON:
+        patient_id            string
+        biomarkers            object  (all keys always present, failed values are null)
+          parselmouth_available   bool
+          jitter_local_pct        float | null   — elevated in PD
+          shimmer_local_pct       float | null   — elevated in PD
+          hnr_db                  float | null   — reduced in PD
+          mean_pitch_hz           float | null
+          classifier_available    bool           — true when pkl artifacts loaded
+          pd_prediction           0 | 1 | null   — 0 healthy, 1 Parkinson's risk
+          pd_probability          float | null   — 0.0–1.0 from predict_proba
+          pd_vocal_risk_score     float | null   — same as pd_probability (compat alias)
+          pd_risk_label           "low" | "moderate" | "high" | "unknown"
+          wav2vec_available       bool
+
+    Benchmark: 61% sensitivity on 28 independent UCI PD patients (held-out test set).
+    Classifier: GradientBoostingClassifier trained on UCI Parkinson Speech Dataset
+                (1040 samples, 26 Praat features, 70% 10-fold CV accuracy).
+    Retrain:    python Backend/scripts/train_parkinson_classifier.py
+    """
+    wav_bytes = await audio.read()
+    if not wav_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+    if len(wav_bytes) > _MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio file too large ({len(wav_bytes):,} bytes). Max 10 MB.",
+        )
+
+    try:
+        biomarkers: dict[str, Any] = await extract_voice_biomarkers(wav_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Biomarker extraction failed: {e}")
+
+    return {
+        "patient_id": patient_id,
+        "biomarkers": biomarkers,
+    }
 
 
 @app.post("/voice/reset")

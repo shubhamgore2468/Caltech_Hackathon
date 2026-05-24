@@ -362,18 +362,57 @@ def compute_pd_risk_score(
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-async def extract_voice_biomarkers(wav_bytes: bytes) -> dict[str, Any]:
-    """
-    Full extraction pipeline called by the FastAPI endpoint.
-    Runs parselmouth synchronously and Wav2Vec2 synchronously (both are
-    CPU-bound; offload to thread pool at the call site if needed).
-    """
+# Keys the frontend can always rely on being present (value may be None).
+_RESPONSE_DEFAULTS: dict[str, Any] = {
+    # Parselmouth
+    "parselmouth_available":  False,
+    "mean_pitch_hz":          None,
+    "jitter_local_pct":       None,
+    "jitter_local_abs_sec":   None,
+    "jitter_rap":             None,
+    "jitter_ppq5":            None,
+    "jitter_ddp":             None,
+    "shimmer_local_pct":      None,
+    "shimmer_local_db":       None,
+    "shimmer_apq3":           None,
+    "shimmer_apq5":           None,
+    "shimmer_dda":            None,
+    "hnr_db":                 None,
+    # Classifier
+    "classifier_available":   False,
+    "pd_prediction":          None,
+    "pd_probability":         None,
+    "pd_vocal_risk_score":    None,
+    "pd_risk_label":          "unknown",
+    # Wav2Vec2
+    "wav2vec_available":      False,
+}
+
+
+def _extract_sync(wav_bytes: bytes) -> dict[str, Any]:
+    """Synchronous extraction — runs in a thread pool via extract_voice_biomarkers."""
     parselmouth_feats = extract_parselmouth_features(wav_bytes)
     wav2vec_feats     = extract_wav2vec_features(wav_bytes)
     risk              = compute_pd_risk_score(parselmouth_feats, wav2vec_feats, wav_bytes)
 
+    result = {**_RESPONSE_DEFAULTS, **parselmouth_feats, **wav2vec_feats, **risk}
+    # Scrub NaN floats — JSON spec doesn't allow NaN; some parselmouth calls return them.
     return {
-        **parselmouth_feats,
-        **wav2vec_feats,
-        **risk,
+        k: (None if isinstance(v, float) and v != v else v)
+        for k, v in result.items()
     }
+
+
+async def extract_voice_biomarkers(wav_bytes: bytes) -> dict[str, Any]:
+    """
+    Full extraction pipeline called by the FastAPI endpoint.
+
+    CPU-bound work (Praat + sklearn) is offloaded to a thread pool so the
+    FastAPI event loop is never blocked.
+
+    Response always contains every key listed in _RESPONSE_DEFAULTS.
+    Missing / failed values are None rather than absent.
+    """
+    import asyncio
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _extract_sync, wav_bytes)

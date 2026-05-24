@@ -4,13 +4,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 // Clinical landmark indices (MediaPipe 468-point mesh)
-// Left eye: vertical pair 159 (top lid) → 145 (bottom lid), horizontal pair 33 (inner) → 133 (outer)
-// Mouth: vertical pair 13 (top inner lip) → 14 (bottom inner lip), horizontal pair 78 (L corner) → 308 (R corner)
+// Left eye:  vertical 159→145, horizontal 33→133
+// Right eye: vertical 386→374, horizontal 362→263  (mirrored mesh)
+// Mouth:     vertical 13→14,   horizontal 78→308
 const LANDMARK_INDICES = {
   leftEyeTop: 159,
   leftEyeBottom: 145,
   leftEyeInner: 33,
   leftEyeOuter: 133,
+  rightEyeTop: 386,
+  rightEyeBottom: 374,
+  rightEyeInner: 362,
+  rightEyeOuter: 263,
   mouthTop: 13,
   mouthBottom: 14,
   mouthLeft: 78,
@@ -49,11 +54,11 @@ export default function ClinicalFacePipeline() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const landmarkerRef = useRef<FaceLandmarker | null>(null);
   const lastVideoTimeRef = useRef(-1);
-  const timestampMsRef = useRef(0);
   const rafRef = useRef(0);
   const runningRef = useRef(false);
   const framesRef = useRef<FrameSample[]>([]);
   const captureStartRef = useRef<number | null>(null);
+  const lastFaceRef = useRef<{x:number;y:number;z:number}[] | null>(null);
 
   const [isReady, setIsReady] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -114,7 +119,6 @@ export default function ClinicalFacePipeline() {
     runningRef.current = false;
     cancelAnimationFrame(rafRef.current);
     lastVideoTimeRef.current = -1;
-    timestampMsRef.current = 0;
   }, []);
 
   const submitFrames = useCallback(async (frames: FrameSample[]) => {
@@ -155,6 +159,20 @@ export default function ClinicalFacePipeline() {
   const predictWebcam = useCallback(() => {
     if (!runningRef.current) return;
 
+    // ── Capture stop check — runs every RAF tick, independent of face detection ──
+    if (captureStartRef.current !== null) {
+      const elapsed = (performance.now() - captureStartRef.current) / 1000;
+      if (elapsed >= CAPTURE_DURATION_SEC) {
+        runningRef.current = false;
+        const captured = [...framesRef.current];
+        captureStartRef.current = null;
+        setIsRecording(false);
+        setCountdown(null);
+        submitFrames(captured);
+        return;
+      }
+    }
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const landmarker = landmarkerRef.current;
@@ -162,89 +180,97 @@ export default function ClinicalFacePipeline() {
     if (video && canvas && landmarker && video.readyState >= 2 && video.videoWidth > 0) {
       const W = video.videoWidth;
       const H = video.videoHeight;
-      canvas.width = W;
-      canvas.height = H;
       const ctx = canvas.getContext('2d')!;
-      ctx.clearRect(0, 0, W, H);
 
+      // Only process + redraw when a new video frame is available
       if (video.currentTime !== lastVideoTimeRef.current) {
         lastVideoTimeRef.current = video.currentTime;
-        timestampMsRef.current += 33;
+        const now = performance.now();
 
-        const results = landmarker.detectForVideo(video, timestampMsRef.current);
+        const results = landmarker.detectForVideo(video, now);
 
         if (results.faceLandmarks?.length > 0) {
           const face = results.faceLandmarks[0];
+          lastFaceRef.current = face; // cache for head-turn drop frames
 
-          // ── Compute EAR (Eye Aspect Ratio) ──────────────────────────────
-          const eyeVertical = euclidean(face[LANDMARK_INDICES.leftEyeTop], face[LANDMARK_INDICES.leftEyeBottom], W, H);
-          const eyeHorizontal = euclidean(face[LANDMARK_INDICES.leftEyeInner], face[LANDMARK_INDICES.leftEyeOuter], W, H);
-          const ear = eyeHorizontal > 0 ? eyeVertical / eyeHorizontal : 0;
+          // ── Compute EAR — average both eyes ─────────────────────────────
+          // Averaging cancels head-turn perspective distortion (one eye narrows,
+          // the other widens) while a real blink dips both equally.
+          const lV = euclidean(face[LANDMARK_INDICES.leftEyeTop],  face[LANDMARK_INDICES.leftEyeBottom], W, H);
+          const lH = euclidean(face[LANDMARK_INDICES.leftEyeInner], face[LANDMARK_INDICES.leftEyeOuter],  W, H);
+          const rV = euclidean(face[LANDMARK_INDICES.rightEyeTop],  face[LANDMARK_INDICES.rightEyeBottom], W, H);
+          const rH = euclidean(face[LANDMARK_INDICES.rightEyeInner], face[LANDMARK_INDICES.rightEyeOuter],  W, H);
+          const earL = lH > 0 ? lV / lH : 0;
+          const earR = rH > 0 ? rV / rH : 0;
+          const ear = (earL + earR) / 2;
 
           // ── Compute Mouth Area ───────────────────────────────────────────
           const mouthVertical = euclidean(face[LANDMARK_INDICES.mouthTop], face[LANDMARK_INDICES.mouthBottom], W, H);
           const mouthHorizontal = euclidean(face[LANDMARK_INDICES.mouthLeft], face[LANDMARK_INDICES.mouthRight], W, H);
           const mouthArea = mouthVertical * mouthHorizontal;
 
-          // ── Store frame if capture is active ─────────────────────────────
+          // ── Collect frame during active capture ──────────────────────────
           if (captureStartRef.current !== null) {
-            const elapsed = (performance.now() - captureStartRef.current) / 1000;
-            const remaining = Math.ceil(CAPTURE_DURATION_SEC - elapsed);
-            setCountdown(remaining > 0 ? remaining : 0);
-
-            if (elapsed <= CAPTURE_DURATION_SEC) {
-              framesRef.current.push({
-                timestamp_ms: timestampMsRef.current,
-                ear: parseFloat(ear.toFixed(5)),
-                mouth_area: parseFloat(mouthArea.toFixed(3)),
-              });
-            } else {
-              // Capture complete — stop and submit
-              runningRef.current = false;
-              cancelAnimationFrame(rafRef.current);
-              const captured = [...framesRef.current];
-              captureStartRef.current = null;
-              setIsRecording(false);
-              setCountdown(null);
-              submitFrames(captured);
-              return;
-            }
+            framesRef.current.push({
+              timestamp_ms: now,
+              ear: parseFloat(ear.toFixed(5)),
+              mouth_area: parseFloat(mouthArea.toFixed(3)),
+            });
           }
 
-          // ── Draw landmark dots ───────────────────────────────────────────
+          if (!captureStartRef.current) {
+            setStatus('Face detected — press Start Capture');
+          }
+        }
+        // (no face this frame — skip status update, keep last canvas draw intact)
+
+        // ── Redraw canvas with current or cached landmarks ───────────────
+        // Only resize canvas when dimensions actually change to avoid resets
+        if (canvas.width !== W || canvas.height !== H) {
+          canvas.width = W;
+          canvas.height = H;
+        }
+        ctx.clearRect(0, 0, W, H);
+
+        const faceToDraw = results.faceLandmarks?.[0] ?? lastFaceRef.current;
+        if (faceToDraw) {
           const drawDot = (idx: number, color: string) => {
-            const p = face[idx];
+            const p = faceToDraw[idx];
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(p.x * W, p.y * H, 4, 0, 2 * Math.PI);
             ctx.fill();
           };
 
-          // Eye landmarks (cyan)
-          drawDot(LANDMARK_INDICES.leftEyeTop, '#00FFFF');
-          drawDot(LANDMARK_INDICES.leftEyeBottom, '#00FFFF');
-          drawDot(LANDMARK_INDICES.leftEyeInner, '#00BFFF');
-          drawDot(LANDMARK_INDICES.leftEyeOuter, '#00BFFF');
-
-          // Mouth landmarks (lime)
-          drawDot(LANDMARK_INDICES.mouthTop, '#39FF14');
+          drawDot(LANDMARK_INDICES.leftEyeTop,     '#00FFFF');
+          drawDot(LANDMARK_INDICES.leftEyeBottom,  '#00FFFF');
+          drawDot(LANDMARK_INDICES.leftEyeInner,   '#00BFFF');
+          drawDot(LANDMARK_INDICES.leftEyeOuter,   '#00BFFF');
+          drawDot(LANDMARK_INDICES.rightEyeTop,    '#00FFFF');
+          drawDot(LANDMARK_INDICES.rightEyeBottom, '#00FFFF');
+          drawDot(LANDMARK_INDICES.rightEyeInner,  '#00BFFF');
+          drawDot(LANDMARK_INDICES.rightEyeOuter,  '#00BFFF');
+          drawDot(LANDMARK_INDICES.mouthTop,    '#39FF14');
           drawDot(LANDMARK_INDICES.mouthBottom, '#39FF14');
-          drawDot(LANDMARK_INDICES.mouthLeft, '#ADFF2F');
-          drawDot(LANDMARK_INDICES.mouthRight, '#ADFF2F');
+          drawDot(LANDMARK_INDICES.mouthLeft,   '#ADFF2F');
+          drawDot(LANDMARK_INDICES.mouthRight,  '#ADFF2F');
 
-          // ── Live metric overlay ──────────────────────────────────────────
-          ctx.fillStyle = 'rgba(0,0,0,0.55)';
-          ctx.fillRect(8, 8, 210, 56);
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = '13px monospace';
-          ctx.fillText(`EAR:        ${ear.toFixed(3)}`, 16, 28);
-          ctx.fillText(`Mouth area: ${mouthArea.toFixed(1)} px²`, 16, 48);
-
-          if (!captureStartRef.current) {
-            setStatus('Face detected — press Start Capture');
+          // ── Live metric overlay (only when we have fresh detection) ──────
+          if (results.faceLandmarks?.[0]) {
+            const _lV = euclidean(faceToDraw[LANDMARK_INDICES.leftEyeTop],   faceToDraw[LANDMARK_INDICES.leftEyeBottom], W, H);
+            const _lH = euclidean(faceToDraw[LANDMARK_INDICES.leftEyeInner], faceToDraw[LANDMARK_INDICES.leftEyeOuter],  W, H);
+            const _rV = euclidean(faceToDraw[LANDMARK_INDICES.rightEyeTop],  faceToDraw[LANDMARK_INDICES.rightEyeBottom], W, H);
+            const _rH = euclidean(faceToDraw[LANDMARK_INDICES.rightEyeInner],faceToDraw[LANDMARK_INDICES.rightEyeOuter],  W, H);
+            const ear = ((_lH > 0 ? _lV/_lH : 0) + (_rH > 0 ? _rV/_rH : 0)) / 2;
+            const mV = euclidean(faceToDraw[LANDMARK_INDICES.mouthTop], faceToDraw[LANDMARK_INDICES.mouthBottom], W, H);
+            const mH = euclidean(faceToDraw[LANDMARK_INDICES.mouthLeft], faceToDraw[LANDMARK_INDICES.mouthRight], W, H);
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillRect(8, 8, 210, 56);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = '13px monospace';
+            ctx.fillText(`EAR:        ${ear.toFixed(3)}`, 16, 28);
+            ctx.fillText(`Mouth area: ${(mV * mH).toFixed(1)} px²`, 16, 48);
           }
-        } else {
-          setStatus('Camera on — no face detected (center your face)');
         }
       }
     }
@@ -270,7 +296,6 @@ export default function ClinicalFacePipeline() {
       });
 
       lastVideoTimeRef.current = -1;
-      timestampMsRef.current = 0;
       runningRef.current = true;
       setStatus('Camera on — detecting face…');
       rafRef.current = requestAnimationFrame(predictWebcam);
@@ -278,6 +303,18 @@ export default function ClinicalFacePipeline() {
       setStatus(err instanceof Error ? err.message : 'Webcam permission denied');
     }
   };
+
+  // Countdown ticker — runs on its own interval, not tied to RAF or face detection
+  useEffect(() => {
+    if (!isRecording) return;
+    const id = setInterval(() => {
+      if (captureStartRef.current === null) return;
+      const elapsed = (performance.now() - captureStartRef.current) / 1000;
+      const remaining = Math.ceil(CAPTURE_DURATION_SEC - elapsed);
+      setCountdown(remaining > 0 ? remaining : 0);
+    }, 250);
+    return () => clearInterval(id);
+  }, [isRecording]);
 
   const startCapture = () => {
     if (!runningRef.current) return;
@@ -293,6 +330,7 @@ export default function ClinicalFacePipeline() {
   const stopCamera = () => {
     stopLoop();
     captureStartRef.current = null;
+    lastFaceRef.current = null;
     setIsRecording(false);
     setCountdown(null);
 

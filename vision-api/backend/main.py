@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 import numpy as np
-from scipy.signal import butter, filtfilt, welch, find_peaks
+from scipy.signal import butter, filtfilt, welch, find_peaks, medfilt
+from scipy.ndimage import uniform_filter1d
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Longevity Biomarkers API")
@@ -110,17 +111,47 @@ async def process_clinical_face(payload: FacePayload):
     mouth_array = np.array([f.mouth_area for f in payload.frames], dtype=float)
 
     # ── 1. Blink Detection via EAR ─────────────────────────────────────────
-    # Blinks manifest as sharp dips in EAR. Invert so dips become peaks for
-    # find_peaks. A prominence of 0.02 (~10 % of a typical EAR range of 0.2)
-    # filters noise while catching genuine blinks.
-    # Minimum inter-blink distance: 200 ms (blinks can't follow faster than ~5 Hz).
-    inverted_ear = -ear_array
-    min_distance_frames = max(1, int(0.20 * fps))  # 200 ms guard
+    # Why rolling-baseline instead of detrend():
+    #   detrend() only removes a linear slope — a head turn mid-test creates a
+    #   non-linear EAR shift that still crosses a fixed threshold.
+    #   Rolling baseline tracks the "open eye level" over a 2 s window, so any
+    #   slow pose drift is absorbed into the baseline; only fast, deep drops
+    #   (genuine blinks) show up in the residual.
+    #
+    # Pipeline:
+    #  a) Median filter k=5 — kills single-frame jitter / tracking glitches
+    #  b) Rolling baseline (2 s uniform window) — local open-eye reference
+    #  c) ear_drop = baseline − smoothed: positive = eye is closing
+    #  d) find_peaks on ear_drop with:
+    #     height ≥ 0.06  → eye must drop 6% below its local baseline
+    #                       (genuine blink ~12–18%; head artifact < 3–4%)
+    #     prominence ≥ 0.05 → drop must be a distinct event, not gradual drift
+    #     distance = 300 ms → physiological minimum inter-blink interval
+    #     width = 65–500 ms → rejects single-frame spikes AND sustained closes
 
-    peaks, properties = find_peaks(
-        inverted_ear,
-        prominence=0.02,
-        distance=min_distance_frames,
+    # medfilt k=3: kills single-frame tracking glitches without erasing real blinks.
+    # k=5 was too aggressive — a 3-frame blink at 15–20fps gets median-voted back to
+    # "open" by the surrounding open-eye frames.
+    smoothed_ear = medfilt(ear_array, kernel_size=3).astype(float)
+
+    # Rolling baseline over 1.5 s: tracks the open-eye resting level while ignoring
+    # individual blink dips (a 200ms blink in a 1.5s window shifts the baseline < 3%).
+    baseline_frames = max(3, int(1.5 * fps))
+    rolling_baseline = uniform_filter1d(smoothed_ear, size=baseline_frames, mode="nearest")
+
+    ear_drop = rolling_baseline - smoothed_ear   # positive when eye is closing
+
+    min_dist  = max(1, int(0.30 * fps))          # 300 ms min between blinks
+    min_width = max(1, int(0.06 * fps))           # ~60 ms minimum blink width
+    max_width = max(min_width + 1, int(0.45 * fps))  # 450 ms cap
+
+    peaks, _ = find_peaks(
+        ear_drop,
+        height=0.04,        # eye must drop ≥4% below local baseline
+                            # genuine blink drop ~12–18%; head artifact <3%
+        prominence=0.03,    # distinct peak above surrounding noise
+        distance=min_dist,
+        width=(min_width, max_width),
     )
 
     total_blinks = int(len(peaks))

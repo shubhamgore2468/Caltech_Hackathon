@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getServerSupabase } from '@/lib/supabase/server';
 
-const ParamSchema = z.object({ id: z.string().uuid() });
+// Accept any UUID format (incl. nil/seed UUIDs). z.string().uuid() in zod v4 is strict v4-only.
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const ParamSchema = z.object({ id: z.string().regex(UUID_RE) });
 
 export async function GET(
   req: Request,

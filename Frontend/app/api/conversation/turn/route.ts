@@ -8,7 +8,7 @@ const TurnSchema = z.object({
       content: z.string().min(1).max(4000),
     }),
   ).min(1).max(40),
-  session_id: z.string().uuid().optional(),
+  session_id: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/).optional(),
 });
 
 const SYSTEM_PROMPT = `You are NeuroTrack, a warm, friendly health assistant doing a brief daily check-in with an older adult.

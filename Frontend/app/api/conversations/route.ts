@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createServerClient } from '@/lib/supabase/server';
 
 const schema = z.object({
-  session_id: z.string().uuid(),
+  session_id: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
   patient_id: z.string(),
   transcript: z.array(
     z.object({
@@ -32,9 +32,14 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
+      console.warn('[conversations] insert failed', error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    console.info(
+      `[conversations] inserted id=${data.id} session=${body.session_id} ` +
+        `turns=${body.transcript.length} flags=${Object.keys(body.cognitive_flags ?? {}).length}`,
+    );
     return NextResponse.json(data, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) {

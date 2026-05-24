@@ -11,7 +11,7 @@ export async function PATCH(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  if (!z.string().uuid().safeParse(id).success) {
+  if (!z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/).safeParse(id).success) {
     return NextResponse.json({ error: 'invalid session id' }, { status: 400 });
   }
 
@@ -32,8 +32,10 @@ export async function PATCH(
     .single();
 
   if (error) {
+    console.warn('[sessions] PATCH failed', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  console.info(`[sessions] ended id=${data.id} ended_at=${data.ended_at}`);
   return NextResponse.json(data);
 }
 

@@ -39,10 +39,12 @@ export async function POST(request: NextRequest) {
       recorded_at: wearable.recorded_at,
     }));
 
-    await supabase.from('biomarkers').insert(rows);
+    const { error: bmErr } = await supabase.from('biomarkers').insert(rows);
+    if (bmErr) console.warn('[wearable] biomarker insert failed', bmErr.message);
+    else console.info(`[wearable] inserted ${rows.length} biomarker rows session=${session.id}`);
 
     const fusion = fuseRiskScores(biomarkers);
-    await supabase.from('risk_scores').insert({
+    const { error: rsErr } = await supabase.from('risk_scores').insert({
       session_id: session.id,
       patient_id,
       parkinsons_score: fusion.parkinsons_score,
@@ -50,6 +52,8 @@ export async function POST(request: NextRequest) {
       contributing_factors: fusion.contributing_factors,
       recorded_at: wearable.recorded_at,
     });
+    if (rsErr) console.warn('[wearable] risk_score insert failed', rsErr.message);
+    else console.info(`[wearable] risk_score inserted session=${session.id} pd=${fusion.parkinsons_score} dem=${fusion.dementia_score}`);
 
     return NextResponse.json({ session, biomarkers: rows });
   } catch (err) {

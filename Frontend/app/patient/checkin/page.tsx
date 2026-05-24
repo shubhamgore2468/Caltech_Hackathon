@@ -81,6 +81,8 @@ type BiomarkerRow = {
   metric_name: string;
   value: number;
   unit?: string;
+  step: 'voice';
+  turn_index: number;
   raw_blob?: Record<string, unknown>;
 };
 
@@ -88,7 +90,7 @@ function voicePayloadToBiomarkers(p: VoiceBiomarkerPayload, turn: number): Bioma
   const rows: BiomarkerRow[] = [];
   const push = (metric_name: string, value: number | null | undefined, unit?: string) => {
     if (value == null || Number.isNaN(value)) return;
-    rows.push({ category: 'voice', metric_name, value, unit });
+    rows.push({ category: 'voice', metric_name, value, unit, step: 'voice', turn_index: turn });
   };
   push('jitter_local_pct', p.jitter_local_pct ?? undefined, '%');
   push('shimmer_local_pct', p.shimmer_local_pct ?? undefined, '%');
@@ -96,11 +98,11 @@ function voicePayloadToBiomarkers(p: VoiceBiomarkerPayload, turn: number): Bioma
   push('mean_pitch_hz', p.mean_pitch_hz ?? undefined, 'hz');
   push('pd_probability', p.pd_probability ?? undefined, 'ratio');
   push('pd_prediction', p.pd_prediction ?? undefined, 'class');
-  // Stash full payload + turn index on first row for traceability.
+  // Stash full payload on first row for traceability.
   if (rows.length) {
     rows[0] = {
       ...rows[0],
-      raw_blob: { turn, pd_risk_label: p.pd_risk_label ?? null, classifier_available: !!p.classifier_available },
+      raw_blob: { pd_risk_label: p.pd_risk_label ?? null, classifier_available: !!p.classifier_available },
     };
   }
   return rows;
@@ -125,6 +127,7 @@ export default function CheckinPage() {
   const [busy, setBusy] = useState(false);
   const [motionResults, setMotionResults] = useState<Array<{ label: string; data: MotionAnalyzeResponse }>>([]);
   const voiceBiomarkersRef = useRef<VoiceBiomarkerPayload[]>([]);
+  const turnsSnapshotRef = useRef<Turn[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recRef = useRef<RecorderHandle | null>(null);
@@ -245,7 +248,10 @@ export default function CheckinPage() {
             }`,
           );
         }
-        const biomarkers = data.biomarkers ?? [];
+        const biomarkers = (data.biomarkers ?? []).map((b: Record<string, unknown>) => ({
+          ...b,
+          step: `imu_${mode}`,
+        }));
         // Debug surface — inspect raw FastAPI CI shape in DevTools.
         if (typeof window !== 'undefined') {
           (window as unknown as Record<string, unknown>).__motionResult = data;
@@ -256,6 +262,8 @@ export default function CheckinPage() {
         if (next === 'voice') {
           userTurnCountRef.current = 0;
           setTurns([]);
+          turnsSnapshotRef.current = [];
+          voiceBiomarkersRef.current = [];
         }
         setStep(next);
       } catch (e) {
@@ -323,11 +331,12 @@ export default function CheckinPage() {
         }
       }
 
-      setTurns((cur) => [
-        ...cur,
+      const newPair: Turn[] = [
         { role: 'user', text: userText || '(no speech)' },
         { role: 'assistant', text: assistantText },
-      ]);
+      ];
+      setTurns((cur) => [...cur, ...newPair]);
+      turnsSnapshotRef.current.push(...newPair);
       userTurnCountRef.current += 1;
 
       setVoiceState('speaking');
@@ -359,8 +368,36 @@ export default function CheckinPage() {
         const fakePcm = new Float32Array(16000 * 5);
         const voice = extractVoiceBiomarkers(fakePcm, 16000, {
           seed: voiceSessionIdRef.current.length,
-        });
+        }).map((b) => ({ ...b, step: 'voice' as const }));
         await postBiomarkers(voice);
+      }
+      // Persist full transcript + aggregated cognitive flags for the doctor view.
+      if (sessionId && turnsSnapshotRef.current.length > 0) {
+        const transcript = turnsSnapshotRef.current.map((t) => ({
+          role: t.role,
+          content: t.text,
+          timestamp: new Date().toISOString(),
+        }));
+        const aggregateFlags = voiceBiomarkersRef.current.reduce<Record<string, unknown>>((acc, b, i) => {
+          if (b.pd_risk_label) acc[`turn_${i + 1}_pd_risk_label`] = b.pd_risk_label;
+          if (b.classifier_available != null) acc[`turn_${i + 1}_classifier`] = b.classifier_available;
+          return acc;
+        }, {});
+        try {
+          const res = await fetch('/api/conversations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              session_id: sessionId,
+              patient_id: PATIENT_ID,
+              transcript,
+              cognitive_flags: aggregateFlags,
+            }),
+          });
+          console.info(`[conversations] persist status=${res.status} turns=${transcript.length}`);
+        } catch (err) {
+          console.warn('[conversations] persist failed', err);
+        }
       }
       setStep('video');
     } finally {
@@ -374,10 +411,10 @@ export default function CheckinPage() {
       if (faceResult) {
         // Persist real camera biomarkers from MediaPipe + /api/biomarkers/clinical/face.
         const cameraRows = [
-          { category: 'camera' as const, metric_name: 'blink_rate_per_min', value: faceResult.blink_rate_bpm, unit: 'bpm' },
-          { category: 'camera' as const, metric_name: 'total_blinks',       value: faceResult.total_blinks,   unit: 'count' },
-          { category: 'camera' as const, metric_name: 'expressivity_cv_pct', value: faceResult.expressivity_cv_pct, unit: '%' },
-          { category: 'camera' as const, metric_name: 'expressivity_variance', value: faceResult.expressivity_variance, unit: 'px2', raw_blob: { clinical_flags: faceResult.clinical_flags } },
+          { category: 'camera' as const, metric_name: 'blink_rate_per_min', value: faceResult.blink_rate_bpm, unit: 'bpm', step: 'video' },
+          { category: 'camera' as const, metric_name: 'total_blinks',       value: faceResult.total_blinks,   unit: 'count', step: 'video' },
+          { category: 'camera' as const, metric_name: 'expressivity_cv_pct', value: faceResult.expressivity_cv_pct, unit: '%', step: 'video' },
+          { category: 'camera' as const, metric_name: 'expressivity_variance', value: faceResult.expressivity_variance, unit: 'px2', step: 'video', raw_blob: { clinical_flags: faceResult.clinical_flags } },
         ];
         console.info('[video-biomarkers] persist', cameraRows);
         await postBiomarkers(cameraRows);
